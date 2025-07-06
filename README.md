@@ -6,6 +6,7 @@ Dieses Repository enthält das öffentliche **Code-Signing-Zertifikat** (self-si
 This repository provides the public **self-signed code-signing certificate** from **PHINIT / easyIT**, used to sign all PowerShell scripts across related repositories. To ensure your systems trust these signed scripts, you can import the certificate manually or via PowerShell.
 
 ---
+## 🇩🇪 Anleitung (Deutsch)
 
 ### 📦 Was ist enthalten?
 
@@ -38,6 +39,7 @@ This repository provides the public **self-signed code-signing certificate** fro
 Das Skript prüft die erforderlichen Speicherorte und importiert das Zertifikat für den lokalen Computerkontext.
 
 ---
+## 🇬🇧 Instructions (English)
 
 ### 📦 Included Files
 
