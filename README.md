@@ -16,7 +16,6 @@ This repository provides the public **self-signed code-signing certificate** fro
   - [🛠️ Manual Setup](#️-manual-setup)
   - [⚙️ Automated Import](#️-automated-import)
 - [🔐 Sicherheitshinweis / Security Notice](#-sicherheitshinweis--security-notice)
-- [📁 Weitere Infos / More Information](#-weitere-infos--more-information)
 
 ---
 ## 🇩🇪 Anleitung (Deutsch)
