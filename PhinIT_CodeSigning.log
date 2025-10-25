@@ -1,84 +1,33 @@
-[2025-10-25 18:56:27] [INFO] - =============================================================================
-[2025-10-25 18:56:27] [INFO] - PhinIT CERTUM Code Signing Tool gestartet
-[2025-10-25 18:56:27] [INFO] - =============================================================================
-[2025-10-25 18:56:27] [INFO] - === PhinIT CERTUM Code Signing Tool - Initialisierung ===
-[2025-10-25 18:56:27] [INFO] - Progress-Fenster deaktiviert
-[2025-10-25 18:56:27] [INFO] - Lade .NET Assemblies...
-[2025-10-25 18:56:27] [INFO] - Assembly geladen: System.Windows.Forms
-[2025-10-25 18:56:27] [INFO] - Assembly geladen: System.Drawing
-[2025-10-25 18:56:27] [INFO] - Assembly geladen: System
-[2025-10-25 18:56:27] [INFO] - Assembly geladen: System.Core
-[2025-10-25 18:56:27] [INFO] - Windows Forms Assemblies erfolgreich geladen
-[2025-10-25 18:56:27] [INFO] - Visual Styles aktiviert
-[2025-10-25 18:56:27] [INFO] - Initialisierung abgeschlossen
-[2025-10-25 18:56:27] [INFO] - Einstellungen aus Registry geladen
-[2025-10-25 18:56:27] [Info] - 1 CERTUM Zertifikat(e) erfolgreich geladen!\n\nAusgewaehltes Zertifikat:\nCN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE\n\nGueltig bis: 31.07.2026 13:38
-[2025-10-25 18:56:27] [Info] - PhinIT CERTUM Code Signing and EXE Creation Tool
+[2025-10-25 19:20:02] [Info] - Ausgewaehlte Datei: PhinIT_CodeSigning_CERTUM_V0.1.ps1
 
-Bereit zur Verwendung!
-[2025-10-25 19:17:31] [Info] - Ausgewaehlte Datei: easyADReport_v0.5.5.ps1
-
-Pfad: E:\00-GitWork\easyADReport\easyADReport_v0.5.5.ps1
-Groesse: 871.15 KB
-Geaendert: 25.10.2025 19:17
+Pfad: E:\00-GitWork\PowerShell_Certificate\PhinIT_CodeSigning_CERTUM_V0.1.ps1
+Groesse: 108.99 KB
+Geaendert: 25.10.2025 18:55
 
 Signatur-Status: HashMismatch
 Signiert von: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
-Zeitstempel: 
-[2025-10-25 19:17:33] [Info] - - PS1 - EXE Konvertierung gestartet...
+Zeitstempel: CN=Certum Timestamp 2025, O=Asseco Data Systems S.A., C=PL
+[2025-10-25 19:20:05] [Info] - PS1-Signierung gestartet...
 
- Datei: easyADReport_v0.5.5.ps1
- Ziel: easyADReport_v0.5.5.exe
-  Tool: PS2EXE Modul
- Status: Konvertierung laeuft...
-
-Bitte warten...
-[2025-10-25 19:17:34] [Info] - - PS1 -> EXE Konvertierung erfolgreich!
-
- Original: easyADReport_v0.5.5.ps1
- EXE-Datei: easyADReport_v0.5.5.exe
- Groesse: 906 KB
- Icon: ico-app.ico
-
- Vorteil: EXE umgeht PowerShell ExecutionPolicy
- Naechster Schritt: 'EXE SIGNIEREN' fuer digitale Signatur
-[2025-10-25 19:17:38] [Info] - EXE-Signierung gestartet...
-
-Datei: easyADReport_v0.5.5.exe
+Datei: PhinIT_CodeSigning_CERTUM_V0.1.ps1
 Zertifikat: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
 Timestamp: Aktiviert
 Status: Signierung laeuft...
 
 Bitte warten...
-[2025-10-25 19:17:40] [Info] - EXE-Signierung erfolgreich!
+[2025-10-25 19:20:07] [Info] - PS1-Signierung erfolgreich!
 
- Datei: easyADReport_v0.5.5.exe
- Status: Digital signiert
- Zertifikat: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
- Timestamp: Hinzugefuegt
-
- Fertig! Die EXE kann jetzt ohne PowerShell ExecutionPolicy-Probleme ausgefuehrt werden.
-[2025-10-25 19:19:09] [Info] - Ausgewaehlte Datei: easyADReport_v0.5.5.ps1
-
-Pfad: E:\00-GitWork\easyADReport\easyADReport_v0.5.5.ps1
-Groesse: 871.15 KB
-Geaendert: 25.10.2025 19:17
-
-Signatur-Status: HashMismatch
-Signiert von: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
-Zeitstempel: 
-[2025-10-25 19:19:10] [Info] - PS1-Signierung gestartet...
-
-Datei: easyADReport_v0.5.5.ps1
-Zertifikat: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
-Timestamp: Aktiviert
-Status: Signierung laeuft...
-
-Bitte warten...
-[2025-10-25 19:19:11] [Info] - PS1-Signierung erfolgreich!
-
-Datei: easyADReport_v0.5.5.ps1
+Datei: PhinIT_CodeSigning_CERTUM_V0.1.ps1
 Status: Digital signiert
 Timestamp: Hinzugefuegt
 
 Naechster Schritt: 'PS1 zu EXE' fuer ExecutionPolicy-freie Ausfuehrung
+[2025-10-25 19:20:11] [Info] - Ausgewaehlte Datei: PhinIT_CodeSigning_CERTUM_V0.1.ps1
+
+Pfad: E:\00-GitWork\PowerShell_Certificate\PhinIT_CodeSigning_CERTUM_V0.1.ps1
+Groesse: 108.99 KB
+Geaendert: 25.10.2025 19:20
+
+Signatur-Status: Valid
+Signiert von: CN="Open Source Developer, Hepp Andreas", O=Open Source Developer, L=Baiersbronn, S=Baden-Württemberg, C=DE
+Zeitstempel: CN=Certum Timestamp 2025, O=Asseco Data Systems S.A., C=PL
