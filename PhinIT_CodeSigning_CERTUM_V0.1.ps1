@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     PhinIT CERTUM Code Signing Tool V0.2 - Trust Manager Edition
     Advanced GUI-Tool zum Signieren von PowerShell-Skripten mit CERTUM Zertifikaten
@@ -50,71 +50,108 @@
 param()
 
 # =============================================================================
+# GLOBALE VARIABLEN
+# =============================================================================
+
+# Debug-Modus
+$script:debugMode = $false
+
+# Pfad-Ermittlung (funktioniert sowohl für PS1 als auch für EXE)
+$scriptPath = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $scriptPath) { $scriptPath = [Environment]::CurrentDirectory }
+
+# Log-Datei
+$logFile = Join-Path $scriptPath "PhinIT_CodeSigning.log"
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = "[$timestamp] [$Level] - $Message"
+    try {
+        Add-Content -Path $logFile -Value $logEntry -ErrorAction SilentlyContinue
+    }
+    catch {
+        # Fehler beim Schreiben ignorieren, um keine Fenster in der EXE zu öffnen
+    }
+}
+
+# Altes Log bei Start löschen
+if (Test-Path $logFile) {
+    Clear-Content -Path $logFile
+}
+Write-Log "============================================================================="
+Write-Log "PhinIT CERTUM Code Signing Tool gestartet"
+Write-Log "============================================================================="
+
+# =============================================================================
 # JIT-WIEDERHERSTELLUNG
 # =============================================================================
 
 function Repair-JITIssues {
     try {
-        Write-Host "Versuche JIT-Probleme automatisch zu beheben..." -ForegroundColor Yellow
+        Write-Log "Versuche JIT-Probleme automatisch zu beheben..." "WARN"
 
         # Versuch 1: Assembly Cache leeren
         try {
-            Write-Host "Leere Assembly Cache..." -ForegroundColor Cyan
+                        Write-Log "Leere Assembly Cache..."
             $assemblyCache = [System.AppDomain]::CurrentDomain.GetAssemblies()
-            Write-Host "Assembly Cache geleert - $($assemblyCache.Count) Assemblies waren geladen" -ForegroundColor Green
+                        Write-Log "Assembly Cache geleert - $($assemblyCache.Count) Assemblies waren geladen"
         }
         catch {
-            Write-Warning "Assembly Cache konnte nicht geleert werden: $($_.Exception.Message)"
+                        Write-Log "Assembly Cache konnte nicht geleert werden: $($_.Exception.Message)" "WARN"
         }
 
         # Versuch 2: Garbage Collection erzwingen
         try {
-            Write-Host "Erzwinge Garbage Collection..." -ForegroundColor Cyan
+                        Write-Log "Erzwinge Garbage Collection..."
             [System.GC]::Collect()
             [System.GC]::WaitForPendingFinalizers()
-            Write-Host "Garbage Collection abgeschlossen" -ForegroundColor Green
+                        Write-Log "Garbage Collection abgeschlossen"
         }
         catch {
-            Write-Warning "Garbage Collection fehlgeschlagen: $($_.Exception.Message)"
+                        Write-Log "Garbage Collection fehlgeschlagen: $($_.Exception.Message)" "WARN"
         }
 
         # Versuch 3: .NET Runtime neu initialisieren
         try {
-            Write-Host "Initialisiere .NET Runtime neu..." -ForegroundColor Cyan
+                        Write-Log "Initialisiere .NET Runtime neu..."
             $currentDomain = [System.AppDomain]::CurrentDomain
-            Write-Host ".NET Runtime neu initialisiert - Domain: $($currentDomain.FriendlyName)" -ForegroundColor Green
+                        Write-Log ".NET Runtime neu initialisiert - Domain: $($currentDomain.FriendlyName)"
         }
         catch {
-            Write-Warning ".NET Runtime konnte nicht neu initialisiert werden: $($_.Exception.Message)"
+                        Write-Log ".NET Runtime konnte nicht neu initialisiert werden: $($_.Exception.Message)" "WARN"
         }
 
         # Versuch 4: Systemdiagnose
         try {
-            Write-Host "Führe Systemdiagnose durch..." -ForegroundColor Cyan
+                        Write-Log "Führe Systemdiagnose durch..."
             $osInfo = Get-CimInstance -ClassName Win32_OperatingSystem
             $dotNetVersion = $PSVersionTable.CLRVersion
-            Write-Host "System: $($osInfo.Caption) $($osInfo.Version)" -ForegroundColor Green
-            Write-Host ".NET CLR: $dotNetVersion" -ForegroundColor Green
-            Write-Host "PowerShell: $($PSVersionTable.PSVersion)" -ForegroundColor Green
+                        Write-Log "System: $($osInfo.Caption) $($osInfo.Version)"
+                        Write-Log ".NET CLR: $dotNetVersion"
+                        Write-Log "PowerShell: $($PSVersionTable.PSVersion)"
         }
         catch {
-            Write-Warning "Systemdiagnose fehlgeschlagen: $($_.Exception.Message)"
+                        Write-Log "Systemdiagnose fehlgeschlagen: $($_.Exception.Message)" "WARN"
         }
 
-        Write-Host "JIT-Wiederherstellung abgeschlossen" -ForegroundColor Green
+                Write-Log "JIT-Wiederherstellung abgeschlossen"
         return $true
     }
     catch {
-        Write-Error "JIT-Wiederherstellung fehlgeschlagen: $($_.Exception.Message)"
+                Write-Log "JIT-Wiederherstellung fehlgeschlagen: $($_.Exception.Message)" "ERROR"
         return $false
     }
 }
 
-# Hilfsfunktion für Debug-Ausgaben
-function Write-DebugInfo {
+# Hilfsfunktion für Debug-Ausgaben ins Logfile
+function Write-DebugLog {
     param([string]$Message)
     if ($script:debugMode) {
-        Write-Host $Message -ForegroundColor Cyan
+        Write-Log $Message "DEBUG"
     }
 }
 
@@ -123,10 +160,14 @@ function Write-DebugInfo {
 # =============================================================================
 
 try {
-    Write-Host "=== PhinIT CERTUM Code Signing Tool - Initialisierung ===" -ForegroundColor Cyan
+    Write-Log "=== PhinIT CERTUM Code Signing Tool - Initialisierung ==="
+    
+    # KRITISCH: Progress-Fenster deaktivieren (verhindert blinkende Fenster in EXE)
+    $ProgressPreference = 'SilentlyContinue'
+    Write-Log "Progress-Fenster deaktiviert"
 
     # Assemblies laden
-    Write-Host "Lade .NET Assemblies..." -ForegroundColor Yellow
+    Write-Log "Lade .NET Assemblies..."
 
     # JIT-sichere Assembly-Ladung mit expliziten Versionen
     $assemblies = @(
@@ -139,54 +180,32 @@ try {
     foreach ($assembly in $assemblies) {
         try {
             [System.Reflection.Assembly]::Load($assembly) | Out-Null
-            Write-Host "✓ Assembly geladen: $($assembly.Split(',')[0])" -ForegroundColor Green
+            Write-Log "Assembly geladen: $($assembly.Split(',')[0])"
         }
         catch {
-            Write-Warning "⚠ Assembly nicht gefunden: $($assembly.Split(',')[0]) - Verwende Fallback"
-            # Fallback: Versuche Assembly ohne Version zu laden
+            Write-Log "Assembly nicht gefunden: $($assembly.Split(',')[0]) - Verwende Fallback" "WARN"
             try {
                 $assemblyName = $assembly.Split(',')[0]
-                [System.Reflection.Assembly]::LoadWithPartialName($assemblyName) | Out-Null
-                Write-Host "✓ Fallback-Assembly geladen: $assemblyName" -ForegroundColor Yellow
+                Add-Type -AssemblyName $assemblyName
+                Write-Log "Fallback-Assembly geladen: $assemblyName" "WARN"
             }
             catch {
-                Write-Error "✗ Kritischer Fehler: Assembly $assemblyName konnte nicht geladen werden"
-                throw "JIT-Fehler: Erforderliche Assembly $assemblyName nicht verfügbar"
+                Write-Log "Kritischer Fehler: Assembly $assemblyName konnte nicht geladen werden" "ERROR"
+                throw "JIT-Fehler: Erforderliche Assembly $assemblyName nicht verfuegbar"
             }
         }
     }
-
-    Write-Host "Windows Forms Assemblies erfolgreich geladen" -ForegroundColor Green
-
-    Write-Host "Initialisierung erfolgreich abgeschlossen" -ForegroundColor Green
+    
+    Write-Log "Windows Forms Assemblies erfolgreich geladen"
+    
+    # KRITISCH: EnableVisualStyles VOR allen GUI-Objekten aufrufen
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+    Write-Log "Visual Styles aktiviert"
+    
+    Write-Log "Initialisierung abgeschlossen"
 }
 catch {
-    Write-Error "Fehler bei der Hauptinitialisierung: $($_.Exception.Message)"
-    Write-Error "StackTrace: $($_.Exception.StackTrace)"
-    Write-Error ""
-    Write-Error "=== DETAILLIERTE FEHLERDIAGNOSE ==="
-    Write-Error "Mögliche Ursachen und Lösungen:"
-    Write-Error ""
-    Write-Error "1. .NET Framework Problem:"
-    Write-Error "   - Installieren Sie .NET Framework 4.8 oder höher"
-    Write-Error "   - Führen Sie 'sfc /scannow' in der Eingabeaufforderung aus"
-    Write-Error "   - Reparieren Sie die .NET-Installation über Windows-Features"
-    Write-Error ""
-    Write-Error "2. PowerShell-Kompatibilität:"
-    Write-Error "   - Verwenden Sie PowerShell 5.1 oder höher"
-    Write-Error "   - Starten Sie PowerShell als Administrator"
-    Write-Error "   - Überprüfen Sie die Ausführungsrichtlinie: Get-ExecutionPolicy"
-    Write-Error ""
-    Write-Error "3. Systemprobleme:"
-    Write-Error "   - Überprüfen Sie Windows Updates"
-    Write-Error "   - Starten Sie den Computer neu"
-    Write-Error "   - Überprüfen Sie die Systemereignisse auf .NET-Fehler"
-    Write-Error ""
-    Write-Error "4. Berechtigungsprobleme:"
-    Write-Error "   - Stellen Sie sicher, dass Sie Schreibrechte haben"
-    Write-Error "   - Führen Sie das Tool als Administrator aus"
-    Write-Error ""
-    Write-Error "Falls das Problem weiterhin besteht, kontaktieren Sie den Support mit diesen Details."
+    Write-Log "Fehler bei der Hauptinitialisierung: $($_.Exception.Message)" "ERROR"
     exit 1
 }
 
@@ -199,14 +218,14 @@ $registryPath = "HKCU:\Software\easyIT\PSS2ES"
 
 # Standard-Einstellungen
 $defaultSettings = @{
-    PS2EXEPath = Join-Path $PSScriptRoot "ps2exe"
+    PS2EXEPath = Join-Path $scriptPath "ps2exe"
     DefaultFolder = [Environment]::GetFolderPath("MyDocuments")
     IconPath = ""
     AppAuthor = "PhinIT"
     AppCompany = "PhinIT"
     AppProduct = "PowerShell Tool"
     AppCopyright = "(c) 2025 PhinIT"
-    AppVersion = "1.0.0.0"
+    AppVersion = "0.1"
     RequireAdmin = $false
     NoConsole = $true
     CPUArch = "AnyCPU"
@@ -273,11 +292,11 @@ function Save-SettingsToRegistry {
             Set-ItemProperty -Path $registryPath -Name $key -Value $Settings[$key] -Type String -Force
         }
         
-        Update-Info "Einstellungen erfolgreich in Registry gespeichert"
+                Write-Log "Einstellungen erfolgreich in Registry gespeichert"
         return $true
     }
     catch {
-        Update-Info "Fehler beim Speichern der Einstellungen: $($_.Exception.Message)"
+                Write-Log "Fehler beim Speichern der Einstellungen: $($_.Exception.Message)" "ERROR"
         return $false
     }
 }
@@ -313,7 +332,7 @@ function Get-SettingsFromRegistry {
                             } else {
                                 # Ungueltiger Pfad - verwende Standardwert
                                 $script:settings[$key] = $defaultSettings[$key]
-                                Update-Info "Ungueltiger DefaultFolder in Registry gefunden, verwende Standardwert: $($defaultSettings[$key])"
+                                                                Write-Log "Ungueltiger DefaultFolder in Registry gefunden, verwende Standardwert: $($defaultSettings[$key])" "WARN"
                             }
                         } else {
                             # Alle anderen Werte sicher zuweisen
@@ -326,18 +345,18 @@ function Get-SettingsFromRegistry {
                     }
                 }
                 
-                Update-Info "Einstellungen aus Registry geladen"
+                                Write-Log "Einstellungen aus Registry geladen"
                 return $true
             }
         }
         
-        Update-Info "Keine gespeicherten Einstellungen gefunden, verwende Standardwerte"
+                Write-Log "Keine gespeicherten Einstellungen gefunden, verwende Standardwerte"
         # Sicherstellen, dass alle erforderlichen Settings gesetzt sind
         $script:settings = $defaultSettings.Clone()
         return $false
     }
     catch {
-        Update-Info "Fehler beim Laden der Einstellungen: $($_.Exception.Message)"
+                Write-Log "Fehler beim Laden der Einstellungen: $($_.Exception.Message)" "ERROR"
         # Bei Fehlern Standardwerte verwenden
         $script:settings = $defaultSettings.Clone()
         return $false
@@ -346,7 +365,7 @@ function Get-SettingsFromRegistry {
 
 function Reset-SettingsToDefault {
     $script:settings = $defaultSettings.Clone()
-    Update-Info "Einstellungen auf Standardwerte zurueckgesetzt"
+        Write-Log "Einstellungen auf Standardwerte zurueckgesetzt"
 }
 
 # Administrator-Privilegien pruefen
@@ -382,11 +401,11 @@ if (-not $isAdmin -and $args -notcontains "-NoElevate") {
 # =============================================================================
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text = "PhinIT CERTUM Code Signing & EXE Creator V0.2"
-$form.Size = New-Object System.Drawing.Size(1224, 1000)
+$form.Text = "PhinIT CERTUM Code Signing & EXE Creator V1"
+$form.Size = New-Object System.Drawing.Size(1075, 930)
 $form.StartPosition = "CenterScreen"
 $form.MaximizeBox = $true
-$form.MinimumSize = New-Object System.Drawing.Size(1224, 1000)
+$form.MinimumSize = New-Object System.Drawing.Size(1075, 930)
 $form.Icon = [System.Drawing.SystemIcons]::Shield
 $form.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -414,7 +433,7 @@ $headerPanel.Controls.Add($titleLabel)
 # Options Button im Header
 $headerOptionsButton = New-Object System.Windows.Forms.Button
 $headerOptionsButton.Text = "Einstellungen"
-$headerOptionsButton.Location = New-Object System.Drawing.Point(1050, 20)
+$headerOptionsButton.Location = New-Object System.Drawing.Point(930, 20)
 $headerOptionsButton.Size = New-Object System.Drawing.Size(100, 35)
 $headerOptionsButton.FlatStyle = "Flat"
 $headerOptionsButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -446,7 +465,7 @@ $form.Controls.Add($mainPanel)
 
 # Datei-Auswahl Header
 $fileSelectionHeader = New-Object System.Windows.Forms.Label
-$fileSelectionHeader.Text = "📁 Datei-Auswahl"
+$fileSelectionHeader.Text = "Datei-Auswahl"
 $fileSelectionHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 14, [System.Drawing.FontStyle]::Regular)
 $fileSelectionHeader.Location = New-Object System.Drawing.Point(16, 16)
 $fileSelectionHeader.Size = New-Object System.Drawing.Size(200, 28)
@@ -456,14 +475,14 @@ $mainPanel.Controls.Add($fileSelectionHeader)
 # Browse Button Panel
 $browsePanel = New-Object System.Windows.Forms.Panel
 $browsePanel.Location = New-Object System.Drawing.Point(16, 50)
-$browsePanel.Size = New-Object System.Drawing.Size(1150, 80)
+$browsePanel.Size = New-Object System.Drawing.Size(1015, 80)
 $browsePanel.BorderStyle = "FixedSingle"
 $browsePanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $mainPanel.Controls.Add($browsePanel)
 
 # Browse Button
 $browseButton = New-Object System.Windows.Forms.Button
-$browseButton.Text = "📂 DATEI AUSWÄHLEN"
+$browseButton.Text = 'DATEI AUSWAEHLEN'
 $browseButton.Location = New-Object System.Drawing.Point(20, 20)
 $browseButton.Size = New-Object System.Drawing.Size(250, 40)
 $browseButton.FlatStyle = "Flat"
@@ -473,18 +492,18 @@ $browseButton.FlatAppearance.BorderSize = 0
 $browseButton.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 12)
 $browsePanel.Controls.Add($browseButton)
 
-# Ausgewählte Datei Anzeige
+# Ausgewaehlte Datei Anzeige
 $selectedFileLabel = New-Object System.Windows.Forms.Label
-$selectedFileLabel.Text = "Ausgewählte Datei:"
+$selectedFileLabel.Text = "Ausgewaehlte Datei:"
 $selectedFileLabel.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 11, [System.Drawing.FontStyle]::Regular)
-$selectedFileLabel.Location = New-Object System.Drawing.Point(300, 15)
-$selectedFileLabel.Size = New-Object System.Drawing.Size(150, 24)
+$selectedFileLabel.Location = New-Object System.Drawing.Point(300, 28)
+$selectedFileLabel.Size = New-Object System.Drawing.Size(180, 24)
 $browsePanel.Controls.Add($selectedFileLabel)
 
 $selectedFileDisplay = New-Object System.Windows.Forms.Label
-$selectedFileDisplay.Text = "Keine Datei ausgewählt"
-$selectedFileDisplay.Location = New-Object System.Drawing.Point(300, 40)
-$selectedFileDisplay.Size = New-Object System.Drawing.Size(820, 24)
+$selectedFileDisplay.Text = "Keine Datei ausgewaehlt"
+$selectedFileDisplay.Location = New-Object System.Drawing.Point(475, 28)
+$selectedFileDisplay.Size = New-Object System.Drawing.Size(620, 24)
 $selectedFileDisplay.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $selectedFileDisplay.ForeColor = [System.Drawing.Color]::FromArgb(100, 116, 139)
 $selectedFileDisplay.BackColor = [System.Drawing.Color]::FromArgb(241, 245, 249)
@@ -497,7 +516,7 @@ $browsePanel.Controls.Add($selectedFileDisplay)
 
 # Zertifikat-Header
 $certHeader = New-Object System.Windows.Forms.Label
-$certHeader.Text = "🔐 CERTUM Zertifikat"
+$certHeader.Text = "CERTUM Zertifikat"
 $certHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 14, [System.Drawing.FontStyle]::Regular)
 $certHeader.Location = New-Object System.Drawing.Point(16, 150)
 $certHeader.Size = New-Object System.Drawing.Size(200, 28)
@@ -507,13 +526,13 @@ $mainPanel.Controls.Add($certHeader)
 # Zertifikat Panel
 $certPanel = New-Object System.Windows.Forms.Panel
 $certPanel.Location = New-Object System.Drawing.Point(16, 180)
-$certPanel.Size = New-Object System.Drawing.Size(1150, 80)
+$certPanel.Size = New-Object System.Drawing.Size(1015, 80)
 $certPanel.BorderStyle = "FixedSingle"
 $certPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $mainPanel.Controls.Add($certPanel)
 
 $certComboBox = New-Object System.Windows.Forms.ComboBox
-$certComboBox.Location = New-Object System.Drawing.Point(20, 20)
+$certComboBox.Location = New-Object System.Drawing.Point(20, 25)
 $certComboBox.Size = New-Object System.Drawing.Size(650, 32)
 $certComboBox.DropDownStyle = "DropDownList"
 $certComboBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
@@ -523,20 +542,20 @@ $certComboBox.FlatStyle = "Flat"
 $certPanel.Controls.Add($certComboBox)
 
 $refreshCertButton = New-Object System.Windows.Forms.Button
-$refreshCertButton.Text = "🔄 Aktualisieren"
+$refreshCertButton.Text = "Aktualisieren"
 $refreshCertButton.Location = New-Object System.Drawing.Point(680, 20)
 $refreshCertButton.Size = New-Object System.Drawing.Size(120, 35)
 $refreshCertButton.FlatStyle = "Flat"
 $refreshCertButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-$refreshCertButton.BackColor = [System.Drawing.Color]::FromArgb(59, 130, 246)
+$refreshCertButton.BackColor = [System.Drawing.Color]::FromArgb(0, 100, 0)
 $refreshCertButton.ForeColor = [System.Drawing.Color]::White
 $refreshCertButton.FlatAppearance.BorderSize = 0
 $certPanel.Controls.Add($refreshCertButton)
 
 # Timestamp Checkbox
 $timestampCheckBox = New-Object System.Windows.Forms.CheckBox
-$timestampCheckBox.Text = "⏰ Timestamp Server verwenden"
-$timestampCheckBox.Location = New-Object System.Drawing.Point(820, 25)
+$timestampCheckBox.Text = "Timestamp Server"
+$timestampCheckBox.Location = New-Object System.Drawing.Point(825, 25)
 $timestampCheckBox.Size = New-Object System.Drawing.Size(200, 24)
 $timestampCheckBox.Font = New-Object System.Drawing.Font("Segoe UI", 10)
 $timestampCheckBox.ForeColor = [System.Drawing.Color]::FromArgb(71, 85, 105)
@@ -549,7 +568,7 @@ $certPanel.Controls.Add($timestampCheckBox)
 
 # Aktionen-Header
 $actionsHeader = New-Object System.Windows.Forms.Label
-$actionsHeader.Text = "⚡ Aktionen"
+$actionsHeader.Text = "Aktionen"
 $actionsHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 14, [System.Drawing.FontStyle]::Regular)
 $actionsHeader.Location = New-Object System.Drawing.Point(16, 280)
 $actionsHeader.Size = New-Object System.Drawing.Size(150, 28)
@@ -559,68 +578,60 @@ $mainPanel.Controls.Add($actionsHeader)
 # Button Panel
 $buttonPanel = New-Object System.Windows.Forms.Panel
 $buttonPanel.Location = New-Object System.Drawing.Point(16, 310)
-$buttonPanel.Size = New-Object System.Drawing.Size(1150, 80)
+$buttonPanel.Size = New-Object System.Drawing.Size(1015, 80)
 $buttonPanel.BorderStyle = "FixedSingle"
 $buttonPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $mainPanel.Controls.Add($buttonPanel)
 
 # PS1 SIGNIEREN Button
 $signPS1Button = New-Object System.Windows.Forms.Button
-$signPS1Button.Text = "✍️ PowerShell SIGNIEREN"
+$signPS1Button.Text = "PowerShell SIGNIEREN"
 $signPS1Button.Location = New-Object System.Drawing.Point(20, 20)
 $signPS1Button.Size = New-Object System.Drawing.Size(220, 45)
 $signPS1Button.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
-$signPS1Button.BackColor = [System.Drawing.Color]::FromArgb(70, 130, 180)
+$signPS1Button.BackColor = [System.Drawing.Color]::FromArgb(60, 179, 113)
 $signPS1Button.ForeColor = [System.Drawing.Color]::White
 $signPS1Button.FlatStyle = "Flat"
 $signPS1Button.FlatAppearance.BorderSize = 0
-$signPS1Button.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(90, 150, 200)
-$signPS1Button.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::FromArgb(50, 110, 160)
 $signPS1Button.Enabled = $false
 $buttonPanel.Controls.Add($signPS1Button)
 
 # PS1 zu EXE Button
 $convertToEXEButton = New-Object System.Windows.Forms.Button
-$convertToEXEButton.Text = "🔄 PowerShell zu EXE"
-$convertToEXEButton.Location = New-Object System.Drawing.Point(250, 20)
+$convertToEXEButton.Text = "PowerShell zu EXE"
+$convertToEXEButton.Location = New-Object System.Drawing.Point(270, 20)
 $convertToEXEButton.Size = New-Object System.Drawing.Size(220, 45)
 $convertToEXEButton.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
-$convertToEXEButton.BackColor = [System.Drawing.Color]::FromArgb(255, 140, 0)
+$convertToEXEButton.BackColor = [System.Drawing.Color]::FromArgb(95, 158, 160)
 $convertToEXEButton.ForeColor = [System.Drawing.Color]::White
 $convertToEXEButton.FlatStyle = "Flat"
 $convertToEXEButton.FlatAppearance.BorderSize = 0
-$convertToEXEButton.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(255, 160, 20)
-$convertToEXEButton.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::FromArgb(235, 120, 0)
 $convertToEXEButton.Enabled = $false
 $buttonPanel.Controls.Add($convertToEXEButton)
 
 # EXE SIGNIEREN Button
 $signEXEButton = New-Object System.Windows.Forms.Button
-$signEXEButton.Text = "✅ EXE SIGNIEREN"
-$signEXEButton.Location = New-Object System.Drawing.Point(480, 20)
+$signEXEButton.Text = "EXE SIGNIEREN"
+$signEXEButton.Location = New-Object System.Drawing.Point(520, 20)
 $signEXEButton.Size = New-Object System.Drawing.Size(220, 45)
 $signEXEButton.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
-$signEXEButton.BackColor = [System.Drawing.Color]::FromArgb(34, 139, 34)
+$signEXEButton.BackColor = [System.Drawing.Color]::FromArgb(102, 205, 170)
 $signEXEButton.ForeColor = [System.Drawing.Color]::White
 $signEXEButton.FlatStyle = "Flat"
 $signEXEButton.FlatAppearance.BorderSize = 0
-$signEXEButton.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(54, 159, 54)
-$signEXEButton.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::FromArgb(14, 119, 14)
 $signEXEButton.Enabled = $false
 $buttonPanel.Controls.Add($signEXEButton)
 
 # SimplySign Button
 $simplySignButton = New-Object System.Windows.Forms.Button
-$simplySignButton.Text = "🌐 SimplySign"
-$simplySignButton.Location = New-Object System.Drawing.Point(710, 20)
+$simplySignButton.Text = "SimplySign"
+$simplySignButton.Location = New-Object System.Drawing.Point(815, 20)
 $simplySignButton.Size = New-Object System.Drawing.Size(180, 45)
 $simplySignButton.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 10, [System.Drawing.FontStyle]::Bold)
-$simplySignButton.BackColor = [System.Drawing.Color]::FromArgb(138, 43, 226)
+$simplySignButton.BackColor = [System.Drawing.Color]::FromArgb(65, 48, 110)
 $simplySignButton.ForeColor = [System.Drawing.Color]::White
 $simplySignButton.FlatStyle = "Flat"
 $simplySignButton.FlatAppearance.BorderSize = 0
-$simplySignButton.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(158, 63, 246)
-$simplySignButton.FlatAppearance.MouseDownBackColor = [System.Drawing.Color]::FromArgb(118, 23, 206)
 $buttonPanel.Controls.Add($simplySignButton)
 
 # =============================================================================
@@ -629,7 +640,7 @@ $buttonPanel.Controls.Add($simplySignButton)
 
 # Info-Header
 $infoHeader = New-Object System.Windows.Forms.Label
-$infoHeader.Text = "ℹ️ Status & Informationen"
+$infoHeader.Text = "Informationen"
 $infoHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 14, [System.Drawing.FontStyle]::Regular)
 $infoHeader.Location = New-Object System.Drawing.Point(16, 410)
 $infoHeader.Size = New-Object System.Drawing.Size(250, 28)
@@ -639,7 +650,7 @@ $mainPanel.Controls.Add($infoHeader)
 # Info Panel
 $infoPanel = New-Object System.Windows.Forms.Panel
 $infoPanel.Location = New-Object System.Drawing.Point(16, 440)
-$infoPanel.Size = New-Object System.Drawing.Size(1150, 250)
+$infoPanel.Size = New-Object System.Drawing.Size(1015, 250)
 $infoPanel.BorderStyle = "FixedSingle"
 $infoPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $mainPanel.Controls.Add($infoPanel)
@@ -653,7 +664,7 @@ $infoTextBox.ScrollBars = "Vertical"
 $infoTextBox.ReadOnly = $true
 $infoTextBox.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $infoTextBox.BackColor = [System.Drawing.Color]::FromArgb(248, 248, 248)
-$infoTextBox.Text = "PhinIT CERTUM Code Signing & EXE Creation Tool`n`nWillkommen!`n`nDieses Tool ermöglicht Ihnen:`n• PowerShell-Skripte (.ps1, .psm1) zu signieren`n• PowerShell-Skripte in ausführbare EXE-Dateien zu konvertieren`n• EXE-Dateien digital zu signieren`n• SimplySign Cloud-Integration zu nutzen`n`nEmpfohlener Workflow:`n1. Klicken Sie auf 'DATEI AUSWÄHLEN' um eine PowerShell-Datei zu wählen`n2. Wählen Sie ein CERTUM-Zertifikat aus der Liste`n3. Verwenden Sie die Aktions-Buttons für Ihre gewünschte Operation`n`nDie Buttons werden automatisch basierend auf der ausgewählten Datei aktiviert.`n`nBereit zur Verwendung!"
+$infoTextBox.Text = "PhinIT CERTUM Code Signing and EXE Creation Tool`n`nBereit zur Verwendung!"
 $infoPanel.Controls.Add($infoTextBox)
 
 # Status-Panel (am unteren Rand)
@@ -969,13 +980,13 @@ function Update-Status {
         $statusLabel.Text = $Message
         $statusLabel.ForeColor = [System.Drawing.Color]::FromArgb($R, $G, $B)
     } else {
-        Write-DebugInfo "DEBUG Update-Status: statusLabel ist NULL - Message: $Message"
+                Write-DebugLog "DEBUG Update-Status: statusLabel ist NULL - Message: $Message"
     }
     
     if ($form) {
         $form.Refresh()
     } else {
-        Write-DebugInfo "DEBUG Update-Status: form ist NULL"
+                Write-DebugLog "DEBUG Update-Status: form ist NULL"
     }
 }
 
@@ -984,19 +995,24 @@ function Show-Progress {
     if ($progressBar) {
         $progressBar.Visible = $Show
     } else {
-        Write-DebugInfo "DEBUG Show-Progress: progressBar ist NULL - Show: $Show"
+                Write-DebugLog "DEBUG Show-Progress: progressBar ist NULL - Show: $Show"
     }
     
     if ($form) {
         $form.Refresh()
     } else {
-        Write-DebugInfo "DEBUG Show-Progress: form ist NULL"
+                Write-DebugLog "DEBUG Show-Progress: form ist NULL"
     }
 }
 
+# Funktion zum Aktualisieren der Info-Box und des Status-Labels
 function Update-Info {
-    param([string]$Message)
-    # Ersetze alle \n durch echte Zeilenumbrueche
+    param([string]$Message, [string]$Type = "Info")
+
+    # Log in Datei schreiben
+    Write-Log $Message $Type
+
+    # Nachricht in der GUI anzeigen
     $formattedMessage = $Message -replace "`n", [Environment]::NewLine
     
     if ($infoTextBox) {
@@ -1005,7 +1021,7 @@ function Update-Info {
         $infoTextBox.SelectionStart = $infoTextBox.Text.Length
         $infoTextBox.ScrollToCaret()
     } else {
-        Write-DebugInfo "DEBUG Update-Info: infoTextBox ist NULL - Message: $Message"
+        Write-DebugLog "DEBUG Update-Info: infoTextBox ist NULL - Message: $Message"
     }
 }
 
@@ -1013,11 +1029,11 @@ function Get-Directory {
     param([string]$Path)
     
     try {
-        Write-DebugInfo "DEBUG Load-Directory: Eingabe-Pfad = '$Path'"
+                Write-DebugLog "DEBUG Load-Directory: Eingabe-Pfad = '$Path'"
         
         # Robuste Validierung des Eingabe-Pfads
         if ([string]::IsNullOrWhiteSpace($Path)) {
-            Write-DebugInfo "DEBUG Load-Directory: Eingabe-Pfad ist leer, verwende Fallback"
+                        Write-DebugLog "DEBUG Load-Directory: Eingabe-Pfad ist leer, verwende Fallback"
             if ($script:settings -and $script:settings.DefaultFolder -and $script:settings.DefaultFolder.Trim() -ne "") {
                 $Path = $script:settings.DefaultFolder
                 Update-Info "Verwende DefaultFolder aus Settings: $Path"
@@ -1027,11 +1043,11 @@ function Get-Directory {
             }
         }
         
-        Write-DebugInfo "DEBUG Load-Directory: Verwende Pfad = '$Path'"
+                Write-DebugLog "DEBUG Load-Directory: Verwende Pfad = '$Path'"
         
         # Zusätzliche Validierung: Prüfen ob Pfad existiert
         if (-not (Test-PathSafe $Path)) {
-            Write-DebugInfo "DEBUG Load-Directory: Pfad existiert nicht, erstelle ihn: '$Path'"
+                        Write-DebugLog "DEBUG Load-Directory: Pfad existiert nicht, erstelle ihn: '$Path'"
             try {
                 if (New-DirectorySafe $Path) {
                     Update-Info "Verzeichnis erstellt: $Path"
@@ -1040,7 +1056,7 @@ function Get-Directory {
                 }
             }
             catch {
-                Write-DebugInfo "DEBUG Load-Directory: Fehler beim Erstellen des Verzeichnisses: $($_.Exception.Message)"
+                                Write-DebugLog "DEBUG Load-Directory: Fehler beim Erstellen des Verzeichnisses: $($_.Exception.Message)"
                 # Fallback zu MyDocuments
                 $Path = [Environment]::GetFolderPath("MyDocuments")
                 Update-Info "Fallback zu MyDocuments: $Path"
@@ -1054,13 +1070,13 @@ function Get-Directory {
         if ($currentPathLabel) {
             $currentPathLabel.Text = $Path
         } else {
-            Write-DebugInfo "DEBUG Load-Directory: currentPathLabel ist NULL"
+                        Write-DebugLog "DEBUG Load-Directory: currentPathLabel ist NULL"
         }
         
         if ($fileListView) {
             $fileListView.Items.Clear()
         } else {
-            Write-DebugInfo "DEBUG Load-Directory: fileListView ist NULL"
+                        Write-DebugLog "DEBUG Load-Directory: fileListView ist NULL"
             return
         }
         
@@ -1133,12 +1149,15 @@ function Get-Directory {
             $item.Tag = $file.FullName
         }
         
-        Update-Status "Verzeichnis geladen: $(Split-Path $Path -Leaf) ($($psFiles.Count) PowerShell-Dateien, $($exeFiles.Count) EXE-Dateien)" 0 100 0
+                $folderName = Split-Path $Path -Leaf
+        $statusText = "Verzeichnis geladen: $folderName ($($psFiles.Count) PS Dateien, $($exeFiles.Count) EXE Dateien)"
+        Update-Status $statusText 0 100 0
     }
     catch {
-        Update-Status "Fehler beim Laden des Verzeichnisses: $($_.Exception.Message)" 200 0 0
-        Write-DebugInfo "DEBUG Load-Directory: Ausnahme = $($_.Exception.Message)"
-        Write-DebugInfo "DEBUG Load-Directory: StackTrace = $($_.Exception.StackTrace)"
+        $errorText = "Fehler beim Laden des Verzeichnisses: $($_.Exception.Message)"
+        Update-Status $errorText 200 0 0
+                Write-DebugLog "DEBUG Load-Directory: Ausnahme = $($_.Exception.Message)"
+                Write-DebugLog "DEBUG Load-Directory: StackTrace = $($_.Exception.StackTrace)"
     }
 }
 
@@ -1273,7 +1292,7 @@ function Convert-PS1ToEXE {
         # Output-Pfad generieren falls nicht angegeben
         if ([string]::IsNullOrWhiteSpace($OutputPath)) {
             $OutputPath = $PS1FilePath -replace '\.ps1$', '.exe'
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: OutputPath war leer, generiert: '$OutputPath'"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: OutputPath war leer, generiert: '$OutputPath'"
         }
         
         # Pruefen ob PS2EXE als Modul verfuegbar ist
@@ -1281,28 +1300,40 @@ function Convert-PS1ToEXE {
         
         if ($ps2exeModule) {
             # PS2EXE als Modul verwenden
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: Verwende PS2EXE Modul $($ps2exeModule.Version)"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: Verwende PS2EXE Modul $($ps2exeModule.Version)"
             
             # Modul importieren falls nicht bereits geladen
             if (-not (Get-Module -Name ps2exe)) {
                 Import-Module ps2exe
             }
             
-            # Parameter fuer Invoke-ps2exe aufbauen
+            # Parameter fuer Invoke-ps2exe aufbauen (nur sichere Parameter)
             $invokeParams = @{
-                InputFile = $PS1FilePath
-                OutputFile = $OutputPath
+                inputFile = $PS1FilePath
+                outputFile = $OutputPath
+                noOutput = $true          # Verhindert Standard-Output-Fenster
+                noError = $true           # Verhindert Error-Output-Fenster
+                STA = $true               # Single Thread Apartment für GUI (wichtig für WPF!)
             }
             
-            # Icon aus Registry verwenden falls kein spezifischer Pfad angegeben
-            if ([string]::IsNullOrWhiteSpace($IconPath) -and $script:settings.IconPath -and $script:settings.IconPath -ne "" -and (Test-IconFile $script:settings.IconPath)) {
-                $IconPath = $script:settings.IconPath
+            # Icon-Pfad-Logik (nur hinzufügen wenn Icon existiert)
+            $finalIconPath = ""
+            if ($script:settings.IconPath -and (Test-IconFile $script:settings.IconPath)) {
+                $finalIconPath = $script:settings.IconPath
+            } elseif ($IconPath -and (Test-IconFile $IconPath)) {
+                $finalIconPath = $IconPath
+            } else {
+                $defaultIconPath = Join-Path $scriptPath "assets\ico-app.ico"
+                if (Test-IconFile $defaultIconPath) {
+                    $finalIconPath = $defaultIconPath
+                }
             }
-            
-            if ($IconPath -and (Test-IconFile $IconPath) -and $IconPath -ne "") {
-                $invokeParams.IconFile = $IconPath
-            } elseif ($IconPath -and $IconPath -ne "") {
-                Update-Info "Icon-Datei nicht gueltig oder nicht gefunden: $IconPath - Verwende Standard-Icon"
+
+            if ($finalIconPath -and $finalIconPath -ne "") {
+                $invokeParams.iconFile = $finalIconPath
+                Write-DebugLog "DEBUG: Icon wird verwendet: $finalIconPath"
+            } else {
+                Write-DebugLog "DEBUG: Kein Icon gefunden, EXE wird ohne Icon erstellt"
             }
             
             # NoConsole aus Registry verwenden falls nicht explizit angegeben
@@ -1322,42 +1353,50 @@ function Convert-PS1ToEXE {
                 $invokeParams.Architecture = $script:settings.CPUArch
             }
             
-            # App-Informationen hinzufuegen (immer wenn Company gesetzt ist)
+            # App-Informationen hinzufuegen (nur wenn Werte vorhanden sind)
             if ($script:settings.AppCompany -and $script:settings.AppCompany -ne "") {
-                $invokeParams.Title = if ($script:settings.AppProduct -and $script:settings.AppProduct -ne "") { $script:settings.AppProduct } else { "PowerShell Tool" }
-                $invokeParams.Description = "Erstellt mit PhinIT CERTUM Code Signing Tool"
-                $invokeParams.Company = $script:settings.AppCompany
-                $invokeParams.Product = if ($script:settings.AppProduct -and $script:settings.AppProduct -ne "") { $script:settings.AppProduct } else { "PowerShell Tool" }
-                $invokeParams.Copyright = if ($script:settings.AppCopyright -and $script:settings.AppCopyright -ne "") { $script:settings.AppCopyright } else { "2025 PhinIT" }
-                $invokeParams.Version = if ($script:settings.AppVersion -and $script:settings.AppVersion -ne "") { $script:settings.AppVersion } else { "1.0.0.0" }
+                $invokeParams.company = $script:settings.AppCompany
             }
+            if ($script:settings.AppProduct -and $script:settings.AppProduct -ne "") {
+                $invokeParams.title = $script:settings.AppProduct
+                $invokeParams.product = $script:settings.AppProduct
+            }
+            if ($script:settings.AppCopyright -and $script:settings.AppCopyright -ne "") {
+                $invokeParams.copyright = $script:settings.AppCopyright
+            }
+            if ($script:settings.AppVersion -and $script:settings.AppVersion -ne "") {
+                $invokeParams.version = $script:settings.AppVersion
+            }
+            # Description immer setzen
+            $invokeParams.description = "Erstellt mit PhinIT CERTUM Code Signing Tool"
             
             # Debug-Ausgabe
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: Invoke-ps2exe Parameter = $($invokeParams | Out-String)"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: Invoke-ps2exe Parameter = $($invokeParams | Out-String)"
             
-            # Zusätzliche Validierung: Prüfe auf leere Pfade in Invoke-ps2exe Parametern
+            # Zusätzliche Validierung: Prüfe auf leere Pfade in Invoke-ps2exe Parametern (nur String-Werte)
             foreach ($key in $invokeParams.Keys) {
                 $value = $invokeParams[$key]
-                if ([string]::IsNullOrWhiteSpace($value)) {
-                    Write-DebugInfo "DEBUG Convert-PS1ToEXE: LEERER PARAMETER GEFUNDEN - Key: '$key', Value: '$value'"
+                # Nur String-Parameter validieren, Boolean-Werte überspringen
+                if ($value -is [string] -and [string]::IsNullOrWhiteSpace($value)) {
+                    Write-DebugLog "DEBUG Convert-PS1ToEXE: LEERER PARAMETER GEFUNDEN - Key: '$key', Value: '$value'"
                     throw "PS2EXE Parameter '$key' ist leer oder nicht definiert"
                 }
-                Write-DebugInfo "DEBUG Convert-PS1ToEXE: Parameter '$key' = '$value'"
+                Write-DebugLog "DEBUG Convert-PS1ToEXE: Parameter '$key' = '$value'"
             }
             
-            # PS2EXE als Modul ausfuehren
-            Invoke-ps2exe @invokeParams
+            # PS2EXE als Modul ausfuehren (Output unterdrücken)
+            Invoke-ps2exe @invokeParams | Out-Null
             
         } else {
             # Fallback: PS2EXE als Script verwenden
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: PS2EXE Modul nicht gefunden, verwende Script-Modus"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: PS2EXE Modul nicht gefunden, verwende Script-Modus"
             
             # PS2EXE Module Pfad aus Registry verwenden (mit Fallback)
             $ps2exePath = $script:settings.PS2EXEPath
             if ([string]::IsNullOrWhiteSpace($ps2exePath)) {
                 # Fallback-Pfad verwenden
-                $ps2exePath = Join-Path $PSScriptRoot "ps2exe"
-                Write-DebugInfo "DEBUG Convert-PS1ToEXE: Verwende Fallback-Pfad: $ps2exePath"
+                $ps2exePath = Join-Path $scriptPath "ps2exe"
+                                Write-DebugLog "DEBUG Convert-PS1ToEXE: Verwende Fallback-Pfad: $ps2exePath"
             }
             
             if ([string]::IsNullOrWhiteSpace($ps2exePath)) {
@@ -1371,21 +1410,33 @@ function Convert-PS1ToEXE {
                 throw "PS2EXE Script nicht gefunden: '$ps2exeScript'. Bitte installieren Sie PS2EXE oder konfigurieren Sie den Pfad in den Optionen."
             }
             
-            # PS2EXE Parameter als Array aufbauen
+            # PS2EXE Parameter als Array aufbauen (nur sichere Parameter)
             $params = @(
                 "-inputFile", "`"$PS1FilePath`"",
-                "-outputFile", "`"$OutputPath`""
+                "-outputFile", "`"$OutputPath`"",
+                "-noOutput",          # Verhindert Standard-Output-Fenster
+                "-noError",           # Verhindert Error-Output-Fenster
+                "-STA"                # Single Thread Apartment für GUI (wichtig für WPF!)
             )
             
-            # Icon aus Registry verwenden falls kein spezifischer Pfad angegeben
-            if ([string]::IsNullOrWhiteSpace($IconPath) -and $script:settings.IconPath -and $script:settings.IconPath -ne "" -and (Test-IconFile $script:settings.IconPath)) {
-                $IconPath = $script:settings.IconPath
+            # Icon-Pfad-Logik (nur hinzufügen wenn Icon existiert)
+            $finalIconPath = ""
+            if ($script:settings.IconPath -and (Test-IconFile $script:settings.IconPath)) {
+                $finalIconPath = $script:settings.IconPath
+            } elseif ($IconPath -and (Test-IconFile $IconPath)) {
+                $finalIconPath = $IconPath
+            } else {
+                $defaultIconPath = Join-Path $scriptPath "assets\ico-app.ico"
+                if (Test-IconFile $defaultIconPath) {
+                    $finalIconPath = $defaultIconPath
+                }
             }
-            
-            if ($IconPath -and (Test-IconFile $IconPath) -and $IconPath -ne "") {
-                $params += "-iconFile", "`"$IconPath`""
-            } elseif ($IconPath -and $IconPath -ne "") {
-                Update-Info "Icon-Datei nicht gueltig oder nicht gefunden: $IconPath - Verwende Standard-Icon"
+
+            if ($finalIconPath -and $finalIconPath -ne "") {
+                $params += "-iconFile", "`"$finalIconPath`""
+                Write-DebugLog "DEBUG: Icon wird verwendet: $finalIconPath"
+            } else {
+                Write-DebugLog "DEBUG: Kein Icon gefunden, EXE wird ohne Icon erstellt"
             }
             
             # NoConsole aus Registry verwenden falls nicht explizit angegeben
@@ -1405,29 +1456,26 @@ function Convert-PS1ToEXE {
                 $params += "-architecture", $script:settings.CPUArch
             }
             
-            # App-Informationen hinzufuegen (immer wenn Company gesetzt ist)
+            # App-Informationen hinzufuegen (nur wenn Werte vorhanden sind)
             if ($script:settings.AppCompany -and $script:settings.AppCompany -ne "") {
-                $params += "-title", "`"$($script:settings.AppProduct)`""
-                $params += "-description", "`"Erstellt mit PhinIT CERTUM Code Signing Tool`""
                 $params += "-company", "`"$($script:settings.AppCompany)`""
+            }
+            if ($script:settings.AppProduct -and $script:settings.AppProduct -ne "") {
+                $params += "-title", "`"$($script:settings.AppProduct)`""
                 $params += "-product", "`"$($script:settings.AppProduct)`""
+            }
+            if ($script:settings.AppCopyright -and $script:settings.AppCopyright -ne "") {
                 $params += "-copyright", "`"$($script:settings.AppCopyright)`""
+            }
+            if ($script:settings.AppVersion -and $script:settings.AppVersion -ne "") {
                 $params += "-version", "`"$($script:settings.AppVersion)`""
             }
+            # Description immer setzen
+            $params += "-description", "`"Erstellt mit PhinIT CERTUM Code Signing Tool`""
             
             # Debug-Ausgabe
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: PS2EXE Script = $ps2exeScript"
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: Parameter = $($params -join ' ')"
-            
-            # Zusätzliche Validierung: Prüfe auf leere Pfade in Script-Parametern
-            for ($i = 0; $i -lt $params.Count; $i++) {
-                $param = $params[$i]
-                if ([string]::IsNullOrWhiteSpace($param)) {
-                    Write-DebugInfo "DEBUG Convert-PS1ToEXE: LEERER PARAMETER GEFUNDEN - Index: $i, Value: '$param'"
-                    throw "PS2EXE Parameter an Index $i ist leer oder nicht definiert"
-                }
-                Write-DebugInfo "DEBUG Convert-PS1ToEXE: Parameter[$i] = '$param'"
-            }
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: PS2EXE Script = $ps2exeScript"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: Parameter = $($params -join ' ')"
             
             # Spezifische Validierung der kritischen Pfad-Parameter
             if ([string]::IsNullOrWhiteSpace($PS1FilePath)) {
@@ -1440,21 +1488,21 @@ function Convert-PS1ToEXE {
                 throw "PS2EXE Script-Pfad ist leer oder nicht definiert: '$ps2exeScript'"
             }
             
-            # PS2EXE als Script ausführen
-            $result = & $ps2exeScript @params
+            # PS2EXE als Script ausführen (Output unterdrücken)
+            & $ps2exeScript @params | Out-Null
             
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: PS2EXE Result = $result"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: PS2EXE Script ausgeführt"
         }
         
         if (Test-PathSafe $OutputPath) {
-            Write-DebugInfo "DEBUG Convert-PS1ToEXE: EXE erfolgreich erstellt: $OutputPath"
+                        Write-DebugLog "DEBUG Convert-PS1ToEXE: EXE erfolgreich erstellt: $OutputPath"
             return $OutputPath
         } else {
             throw "EXE-Datei wurde nicht erstellt: '$OutputPath'"
         }
     }
     catch {
-        Write-DebugInfo "DEBUG Convert-PS1ToEXE: Fehler = $($_.Exception.Message)"
+                Write-DebugLog "DEBUG Convert-PS1ToEXE: Fehler = $($_.Exception.Message)"
         throw "PS2EXE Konvertierung fehlgeschlagen: $($_.Exception.Message)"
     }
 }
@@ -1470,40 +1518,40 @@ function Update-ButtonStates {
         $isPowerShellFile = $isPS1 -or $isPSM1
         $isEXE = $hasFile -and ($extension -eq ".exe")
         
-        Update-Info "DEBUG: Update-ButtonStates - hasFile: $hasFile, hasCert: $hasCert, extension: $extension, isPS1: $isPS1, isPSM1: $isPSM1, isEXE: $isEXE"
+        Write-DebugLog "DEBUG: Update-ButtonStates - hasFile: $hasFile, hasCert: $hasCert, extension: $extension, isPS1: $isPS1, isPSM1: $isPSM1, isEXE: $isEXE"
         
         # PS1 SIGNIEREN: PowerShell-Datei (.ps1 oder .psm1) + Zertifikat
         if ($signPS1Button) {
             $signPS1Button.Enabled = ($isPowerShellFile -and $hasCert)
         } else {
-            Write-DebugInfo "DEBUG: signPS1Button ist NULL"
+                        Write-DebugLog "DEBUG: signPS1Button ist NULL"
         }
         
         # PS1 ? EXE: PowerShell-Datei (.ps1 oder .psm1)
         if ($convertToEXEButton) {
             $convertToEXEButton.Enabled = $isPowerShellFile
         } else {
-            Write-DebugInfo "DEBUG: convertToEXEButton ist NULL"
+                        Write-DebugLog "DEBUG: convertToEXEButton ist NULL"
         }
         
         # EXE SIGNIEREN: EXE-Datei + Zertifikat  
         if ($signEXEButton) {
             $signEXEButton.Enabled = ($isEXE -and $hasCert)
         } else {
-            Write-DebugInfo "DEBUG: signEXEButton ist NULL"
+                        Write-DebugLog "DEBUG: signEXEButton ist NULL"
         }
 
         # SimplySign: immer verfuegbar
         if ($simplySignButton) {
             $simplySignButton.Enabled = $true
         } else {
-            Write-DebugInfo "DEBUG: simplySignButton ist NULL"
+                        Write-DebugLog "DEBUG: simplySignButton ist NULL"
         }
         
-        Update-Info "DEBUG: Button-Status aktualisiert - PS1 Sign: $($signPS1Button.Enabled), PS1->EXE: $($convertToEXEButton.Enabled), EXE Sign: $($signEXEButton.Enabled)"
+                Write-DebugLog "DEBUG: Button-Status aktualisiert - PS1 Sign: $($signPS1Button.Enabled), PS1->EXE: $($convertToEXEButton.Enabled), EXE Sign: $($signEXEButton.Enabled)"
     }
     catch {
-        Write-DebugInfo "DEBUG: Fehler in Update-ButtonStates: $($_.Exception.Message)"
+                Write-DebugLog "DEBUG: Fehler in Update-ButtonStates: $($_.Exception.Message)"
         # Bei Fehlern alle Buttons deaktivieren
         if ($signPS1Button) { $signPS1Button.Enabled = $false }
         if ($convertToEXEButton) { $convertToEXEButton.Enabled = $false }
@@ -1532,13 +1580,18 @@ function Test-FileSignature {
 # Browse Button Event Handler
 $browseButton.Add_Click({
     $fileDialog = New-Object System.Windows.Forms.OpenFileDialog
-    $fileDialog.Filter = "PowerShell-Dateien (*.ps1;*.psm1)|*.ps1;*.psm1|EXE-Dateien (*.exe)|*.exe|Alle unterstuetzten Dateien (*.ps1;*.psm1;*.exe)|*.ps1;*.psm1;*.exe"
-    $fileDialog.Title = "PowerShell-Datei oder EXE auswaehlen"
+    # Alle unterstützten Dateien als Standard anzeigen
+    $fileDialog.Filter = 'Alle unterstuetzten Dateien (*.ps1;*.psm1;*.exe)|*.ps1;*.psm1;*.exe|PowerShell Dateien (*.ps1;*.psm1)|*.ps1;*.psm1|EXE Dateien (*.exe)|*.exe'
+    $fileDialog.FilterIndex = 1  # Standard: Alle unterstützten Dateien
+    $fileDialog.Title = 'PowerShell Datei oder EXE auswaehlen'
     $fileDialog.InitialDirectory = $script:currentDirectory
     $fileDialog.Multiselect = $false
     
     if ($fileDialog.ShowDialog() -eq "OK") {
         $selectedFile = $fileDialog.FileName
+        
+        # Ordner für nächstes Mal merken
+        $script:currentDirectory = Split-Path $selectedFile -Parent
         
         # Datei direkt auswaehlen
         $script:selectedScriptPath = $selectedFile
@@ -1576,24 +1629,24 @@ $browseButton.Add_Click({
 })
 # Zertifikat-Verwaltung
 $refreshCertButton.Add_Click({
-    Update-Info "DEBUG: Zertifikat-Refresh Button wurde geklickt"
+    Write-DebugLog "DEBUG: Zertifikat-Refresh Button wurde geklickt"
     Show-Progress $true
     Update-Status "Lade CERTUM Zertifikate..." 0 0 200
     $certComboBox.Items.Clear()
     
     try {
-        Update-Info "DEBUG: Suche nach Code Signing Zertifikaten..."
+        Write-DebugLog "DEBUG: Suche nach Code Signing Zertifikaten..."
         $certs = Get-ChildItem -Path Cert:\CurrentUser\My -CodeSigningCert | Where-Object {
             $_.EnhancedKeyUsageList -match "Code Signing" -or
             $_.Issuer -match "CERTUM"
         } | Sort-Object NotAfter -Descending
         
-        Update-Info "DEBUG: Gefundene Zertifikate: $($certs.Count)"
+        Write-DebugLog "DEBUG: Gefundene Zertifikate: $($certs.Count)"
         
         if ($certs.Count -eq 0) {
             $certComboBox.Items.Add("Kein CERTUM Code Signing Zertifikat gefunden")
             Update-Status "Keine CERTUM Zertifikate gefunden - Bitte installieren" 200 0 0
-            Update-Info "DEBUG: Keine Zertifikate gefunden"
+            Update-Info "Keine CERTUM Code Signing Zertifikate gefunden.\n\nBitte installieren Sie ein gueltiges CERTUM Zertifikat im Windows Certificate Store (Cert:\CurrentUser\My)."
         } else {
             foreach ($cert in $certs) {
                 $subject = ($cert.Subject -split ',')[0] -replace 'CN=', ''
@@ -1612,14 +1665,14 @@ $refreshCertButton.Add_Click({
                 $script:selectedCertificate = $certs[0]
                 Update-ButtonStates
                 Update-Status "$($certs.Count) CERTUM Zertifikat(e) geladen" 0 100 0
-                Update-Info "DEBUG: Zertifikate erfolgreich geladen, Button-Status aktualisiert"
+                Update-Info "$($certs.Count) CERTUM Zertifikat(e) erfolgreich geladen!\n\nAusgewaehltes Zertifikat:\n$($script:selectedCertificate.Subject)\n\nGueltig bis: $($script:selectedCertificate.NotAfter.ToString('dd.MM.yyyy HH:mm'))"
             }
         }
     }
     catch {
         $certComboBox.Items.Add("Fehler beim Laden der Zertifikate")
         Update-Status "Fehler beim Laden der Zertifikate: $($_.Exception.Message)" 200 0 0
-        Update-Info "DEBUG: Fehler beim Laden der Zertifikate: $($_.Exception.Message)"
+        Update-Info "Fehler beim Laden der Zertifikate:\n\n$($_.Exception.Message)\n\nBitte pruefen Sie:\n- Windows Certificate Store Zugriff\n- CERTUM Zertifikat Installation\n- Administratorrechte"
     }
     finally {
         Show-Progress $false
@@ -1643,7 +1696,7 @@ $certComboBox.Add_SelectedIndexChanged({
 
 # SimplySign Integration
 $simplySignButton.Add_Click({
-    Update-Info "DEBUG: SimplySign Button wurde geklickt"
+    Write-DebugLog "DEBUG: SimplySign Button wurde geklickt"
     
     # Pruefen ob SimplySignDesktop.exe bereits laeuft
     $simplySignProcess = Get-Process -Name "SimplySignDesktop" -ErrorAction SilentlyContinue
@@ -1697,16 +1750,16 @@ $simplySignButton.Add_Click({
 
 # PS1 SIGNIEREN Event Handler
 $signPS1Button.Add_Click({
-    Update-Info "DEBUG: PS1 SIGNIEREN Button wurde geklickt"
+    Write-DebugLog "DEBUG: PS1 SIGNIEREN Button wurde geklickt"
     
     if (-not $script:selectedScriptPath -or -not (Test-Path $script:selectedScriptPath)) {
-        Update-Info "DEBUG: Keine Datei ausgewaehlt oder Datei existiert nicht"
+        Write-DebugLog "DEBUG: PS1 SIGNIEREN - Keine Datei ausgewaehlt oder Datei existiert nicht"
         [System.Windows.Forms.MessageBox]::Show("Bitte waehlen Sie zunaechst eine PowerShell-Datei mit dem Browse-Button aus.", "Keine Datei ausgewaehlt", "OK", "Warning")
         return
     }
     
     if ([System.IO.Path]::GetExtension($script:selectedScriptPath) -ne ".ps1" -and [System.IO.Path]::GetExtension($script:selectedScriptPath) -ne ".psm1") {
-        Update-Info "DEBUG: Ausgewaehlte Datei ist keine PowerShell-Datei (.ps1 oder .psm1)"
+        Write-DebugLog "DEBUG: Ausgewaehlte Datei ist keine PowerShell-Datei (.ps1 oder .psm1)"
         [System.Windows.Forms.MessageBox]::Show("Die ausgewaehlte Datei muss eine PowerShell-Datei (.ps1 oder .psm1) sein.", "Falscher Dateityp", "OK", "Warning")
         return
     }
@@ -1717,7 +1770,7 @@ $signPS1Button.Add_Click({
         return
     }
 
-    Update-Info "DEBUG: Alle Pruefungen bestanden, starte Signierung"
+    Write-DebugLog "DEBUG: Alle Pruefungen bestanden, starte Signierung"
     
     try {
         $fileName = Split-Path $script:selectedScriptPath -Leaf
@@ -1764,21 +1817,21 @@ $signPS1Button.Add_Click({
 
 # PS1 ? EXE Konvertierung Event Handler
 $convertToEXEButton.Add_Click({
-    Update-Info "DEBUG: PS1 - EXE Button wurde geklickt`nDEBUG: selectedScriptPath = '$script:selectedScriptPath'"
+    Write-DebugLog "DEBUG: PS1 - EXE Button wurde geklickt - selectedScriptPath = '$script:selectedScriptPath'"
     
     if (-not $script:selectedScriptPath -or -not (Test-Path $script:selectedScriptPath)) {
-        Update-Info "DEBUG: Keine Datei ausgewaehlt oder Datei existiert nicht`nDEBUG: selectedScriptPath = '$script:selectedScriptPath'`nDEBUG: Test-Path Ergebnis = $(if ($script:selectedScriptPath) { Test-Path $script:selectedScriptPath } else { 'N/A' })"
+        Write-DebugLog "DEBUG: Keine Datei ausgewaehlt - selectedScriptPath = '$script:selectedScriptPath'"
         [System.Windows.Forms.MessageBox]::Show("Bitte waehlen Sie zunaechst eine PowerShell-Datei (.ps1) mit dem Browse-Button aus.", "Keine Datei ausgewaehlt", "OK", "Warning")
         return
     }
     
     if ([System.IO.Path]::GetExtension($script:selectedScriptPath) -ne ".ps1" -and [System.IO.Path]::GetExtension($script:selectedScriptPath) -ne ".psm1") {
-        Update-Info "DEBUG: Ausgewaehlte Datei ist keine PowerShell-Datei (.ps1 oder .psm1)`nDEBUG: Extension = $([System.IO.Path]::GetExtension($script:selectedScriptPath))"
+        Write-DebugLog "DEBUG: Ausgewaehlte Datei ist keine PowerShell-Datei - Extension = $([System.IO.Path]::GetExtension($script:selectedScriptPath))"
         [System.Windows.Forms.MessageBox]::Show("Die ausgewaehlte Datei muss eine PowerShell-Datei (.ps1 oder .psm1) sein.", "Falscher Dateityp", "OK", "Warning")
         return
     }
 
-    Update-Info "DEBUG: Alle Pruefungen bestanden, starte EXE-Konvertierung`nDEBUG: Final selectedScriptPath = '$script:selectedScriptPath'"
+    Write-DebugLog "DEBUG: Alle Pruefungen bestanden, starte EXE-Konvertierung - selectedScriptPath = '$script:selectedScriptPath'"
     
     try {
         $fileName = Split-Path $script:selectedScriptPath -Leaf
@@ -1790,45 +1843,60 @@ $convertToEXEButton.Add_Click({
 
         # EXE-Konvertierung durchfuehren - mit minimalen Parametern
         $exePath = Convert-PS1ToEXE -PS1FilePath $script:selectedScriptPath
-        Update-Info "DEBUG: Convert-PS1ToEXE abgeschlossen, EXE-Pfad = '$exePath'"
+        Write-DebugLog "DEBUG: Convert-PS1ToEXE abgeschlossen, EXE-Pfad = '$exePath'"
         
         if (Test-Path $exePath) {
             # Zusätzliche Validierung des EXE-Pfads
-            Write-DebugInfo "DEBUG: EXE-Pfad vor Korrektur = '$exePath'"
+                        Write-DebugLog "DEBUG: EXE-Pfad vor Korrektur = '$exePath'"
             
             # Sicherstellen, dass der Pfad mit .exe endet
             if ($exePath -notmatch '\.exe$') {
                 $correctedPath = $exePath -replace '\.ex$', '.exe'
-                Write-DebugInfo "DEBUG: Korrigiere EXE-Pfad von '$exePath' zu '$correctedPath'"
+                                Write-DebugLog "DEBUG: Korrigiere EXE-Pfad von '$exePath' zu '$correctedPath'"
                 $exePath = $correctedPath
             }
             
             # Finale Validierung
             if (-not (Test-Path $exePath)) {
-                Write-DebugInfo "DEBUG: Korrigierter Pfad existiert nicht: '$exePath'"
+                                Write-DebugLog "DEBUG: Korrigierter Pfad existiert nicht: '$exePath'"
                 throw "EXE-Datei wurde nicht am erwarteten Pfad gefunden: '$exePath'"
             }
             
-            Write-DebugInfo "DEBUG: Finale EXE-Pfad validiert: '$exePath'"
+            Write-DebugLog "DEBUG: Finale EXE-Pfad validiert: '$exePath'"
             Update-Status "EXE-Konvertierung erfolgreich!" 0 150 0
-            Update-Info "- PS1 - EXE Konvertierung erfolgreich!`n`n Original: $fileName`n EXE-Datei: $([System.IO.Path]::GetFileName($exePath))`n Groesse: $([Math]::Round((Get-Item $exePath).Length / 1KB, 1)) KB`n Icon: ico-app.ico`n`n Vorteil: EXE umgeht PowerShell ExecutionPolicy`n Naechster Schritt: 'EXE SIGNIEREN' fuer digitale Signatur"
+            
+            # Dateigröße und Dateiname sicher ermitteln
+            $fileSize = 0
+            $exeFileName = "Unbekannt"
+            try {
+                if ($exePath -and (Test-Path $exePath)) {
+                    $fileSize = [Math]::Round((Get-Item $exePath).Length / 1KB, 1)
+                    $exeFileName = [System.IO.Path]::GetFileName($exePath)
+                }
+            } catch {
+                Write-DebugLog "DEBUG: Fehler beim Ermitteln der Dateiinformationen: $($_.Exception.Message)"
+                $fileSize = 0
+                $exeFileName = if ($exePath) { Split-Path $exePath -Leaf } else { "Unbekannt" }
+            }
+            
+            Update-Info "- PS1 -> EXE Konvertierung erfolgreich!`n`n Original: $fileName`n EXE-Datei: $exeFileName`n Groesse: $fileSize KB`n Icon: ico-app.ico`n`n Vorteil: EXE umgeht PowerShell ExecutionPolicy`n Naechster Schritt: 'EXE SIGNIEREN' fuer digitale Signatur"
 
             # Kurze Verzoegerung um sicherzustellen, dass die Datei vollstaendig geschrieben wurde
             Start-Sleep -Milliseconds 500
             
             # DEBUG: Verzeichnis-Pfad pruefen
-            Write-DebugInfo "DEBUG: currentDirectory vor Explorer-Update = '$script:currentDirectory'"
+                        Write-DebugLog "DEBUG: currentDirectory vor Explorer-Update = '$script:currentDirectory'"
             
             # Explorer aktualisieren - mit Fallback falls currentDirectory leer ist
             # Neue EXE-Datei automatisch auswaehlen - mit Validierung
             if ($exePath -and $exePath -ne "" -and (Test-Path $exePath)) {
-                Write-DebugInfo "DEBUG: Setze selectedScriptPath auf: '$exePath'"
+                                Write-DebugLog "DEBUG: Setze selectedScriptPath auf: '$exePath'"
                 $script:selectedScriptPath = $exePath
                 $selectedFileDisplay.Text = Split-Path $exePath -Leaf
                 $selectedFileDisplay.ForeColor = [System.Drawing.Color]::FromArgb(0, 51, 102)
                 Update-ButtonStates
             } else {
-                Write-DebugInfo "DEBUG: exePath ist ungueltig oder existiert nicht: '$exePath'"
+                                Write-DebugLog "DEBUG: exePath ist ungueltig oder existiert nicht: '$exePath'"
                 Update-Info "WARNUNG: EXE-Datei wurde erstellt, konnte aber nicht automatisch ausgewaehlt werden"
             }
         } else {
@@ -1837,7 +1905,7 @@ $convertToEXEButton.Add_Click({
         
     } catch {
         Update-Status "EXE-Konvertierung fehlgeschlagen" 255 0 0
-        Update-Info "- PS1 - EXE Konvertierung fehlgeschlagen:`n`n Fehlerdetails:`n$($_.Exception.Message)`n`n Moegliche Ursachen:`n PS2EXE Modul nicht verfuegbar`n PowerShell-Datei syntaktisch fehlerhaft`n Unzureichende Schreibrechte`n Ungueltiger Icon-Pfad`n`n Debug-Info:`nPfad: $script:selectedScriptPath`nIcon: $(Join-Path $PSScriptRoot 'assets\ico-app.ico')"
+                Update-Info "- PS1 -> EXE Konvertierung fehlgeschlagen:`n`n Fehlerdetails:`n$($_.Exception.Message)`n`n Moegliche Ursachen:`n PS2EXE Modul nicht verfuegbar`n PowerShell-Datei syntaktisch fehlerhaft`n Unzureichende Schreibrechte`n Ungueltiger Icon-Pfad`n`n Debug-Info:`nPfad: $script:selectedScriptPath`nIcon: $(Join-Path $scriptPath 'assets\ico-app.ico')"
         [System.Windows.Forms.MessageBox]::Show("Fehler bei der EXE-Konvertierung:`n`n$($_.Exception.Message)", "Konvertierungsfehler", "OK", "Error")
     } finally {
         Show-Progress $false
@@ -1847,27 +1915,27 @@ $convertToEXEButton.Add_Click({
 
 # EXE SIGNIEREN Event Handler
 $signEXEButton.Add_Click({
-    Update-Info "DEBUG: EXE SIGNIEREN Button wurde geklickt"
+    Write-DebugLog "DEBUG: EXE SIGNIEREN Button wurde geklickt"
     
     if (-not $script:selectedScriptPath -or -not (Test-Path $script:selectedScriptPath)) {
-        Update-Info "DEBUG: Keine Datei ausgewaehlt oder Datei existiert nicht"
+        Write-DebugLog "DEBUG: EXE SIGNIEREN - Keine Datei ausgewaehlt oder Datei existiert nicht"
         [System.Windows.Forms.MessageBox]::Show("Bitte waehlen Sie zunaechst eine EXE-Datei mit dem Browse-Button aus.", "Keine Datei ausgewaehlt", "OK", "Warning")
         return
     }
     
     if ([System.IO.Path]::GetExtension($script:selectedScriptPath) -ne ".exe") {
-        Update-Info "DEBUG: Ausgewaehlte Datei ist keine .exe Datei"
+        Write-DebugLog "DEBUG: EXE SIGNIEREN - Ausgewaehlte Datei ist keine .exe Datei"
         [System.Windows.Forms.MessageBox]::Show("Die ausgewaehlte Datei muss eine EXE-Datei sein.", "Falscher Dateityp", "OK", "Warning")
         return
     }
     
     if (-not $script:selectedCertificate) {
-        Update-Info "DEBUG: Kein Zertifikat ausgewaehlt"
+        Write-DebugLog "DEBUG: EXE SIGNIEREN - Kein Zertifikat ausgewaehlt"
         [System.Windows.Forms.MessageBox]::Show("Bitte waehlen Sie zunaechst ein gueltiges CERTUM Zertifikat aus.", "Kein Zertifikat ausgewaehlt", "OK", "Warning")
         return
     }
     
-    Update-Info "DEBUG: Alle Pruefungen bestanden, starte EXE-Signierung"
+    Write-DebugLog "DEBUG: Alle Pruefungen bestanden, starte EXE-Signierung"
 
     try {
         $fileName = Split-Path $script:selectedScriptPath -Leaf
@@ -1915,55 +1983,55 @@ $signEXEButton.Add_Click({
 # Form Load
 $form.Add_Load({
     try {
-        Write-DebugInfo "DEBUG: Form Load gestartet"
+                Write-DebugLog "DEBUG: Form Load gestartet"
         
         # Einstellungen aus Registry laden
         Get-SettingsFromRegistry
         
-        Write-DebugInfo "DEBUG: Settings geladen, pruefe DefaultFolder"
+                Write-DebugLog "DEBUG: Settings geladen, pruefe DefaultFolder"
         
         # Sicherstellen, dass settings Hashtable existiert
         if (-not $script:settings) {
             $script:settings = $defaultSettings.Clone()
-            Write-DebugInfo "DEBUG: settings war NULL, initialisiert mit DefaultSettings"
+                        Write-DebugLog "DEBUG: settings war NULL, initialisiert mit DefaultSettings"
         }
         
         # Sicherstellen, dass DefaultFolder immer einen gueltigen Wert hat
         if (-not $script:settings.DefaultFolder -or $script:settings.DefaultFolder.Trim() -eq "") {
             $script:settings.DefaultFolder = [Environment]::GetFolderPath("MyDocuments")
-            Write-DebugInfo "DEBUG: DefaultFolder war leer, gesetzt auf: $($script:settings.DefaultFolder)"
+                        Write-DebugLog "DEBUG: DefaultFolder war leer, gesetzt auf: $($script:settings.DefaultFolder)"
         }
         
-        Write-DebugInfo "DEBUG: DefaultFolder validiert: $($script:settings.DefaultFolder)"
+                Write-DebugLog "DEBUG: DefaultFolder validiert: $($script:settings.DefaultFolder)"
         
         # Sicherstellen, dass currentDirectory initialisiert ist
         if (-not $script:currentDirectory -or $script:currentDirectory.Trim() -eq "") {
             $script:currentDirectory = $script:settings.DefaultFolder
-            Write-DebugInfo "DEBUG: currentDirectory war leer, gesetzt auf: $($script:currentDirectory)"
+                        Write-DebugLog "DEBUG: currentDirectory war leer, gesetzt auf: $($script:currentDirectory)"
         }
         
-        Write-DebugInfo "DEBUG: currentDirectory validiert: $($script:currentDirectory)"
+                Write-DebugLog "DEBUG: currentDirectory validiert: $($script:currentDirectory)"
         
         # Zertifikate und Verzeichnis beim Start laden
-        Write-DebugInfo "DEBUG: Lade Zertifikate..."
+                Write-DebugLog "DEBUG: Lade Zertifikate..."
         if ($refreshCertButton) {
             $refreshCertButton.PerformClick()
         } else {
-            Write-DebugInfo "DEBUG: refreshCertButton ist NULL"
+                        Write-DebugLog "DEBUG: refreshCertButton ist NULL"
         }
         
         # Button-Status initialisieren
-        Write-DebugInfo "DEBUG: Initialisiere Button-Status..."
+                Write-DebugLog "DEBUG: Initialisiere Button-Status..."
         Update-ButtonStates
         
-        Write-DebugInfo "DEBUG: Form Load erfolgreich abgeschlossen"
+                Write-DebugLog "DEBUG: Form Load erfolgreich abgeschlossen"
         
         # Willkommens-Info anzeigen (keine automatischen Dialoge)
-        Update-Info "PhinIT CERTUM Code Signing & EXE Creation Tool`n`nWillkommen!`n`nDieses Tool ermöglicht Ihnen:`n• PowerShell-Skripte (.ps1, .psm1) zu signieren`n• PowerShell-Skripte in ausführbare EXE-Dateien zu konvertieren`n• EXE-Dateien digital zu signieren`n• SimplySign Cloud-Integration zu nutzen`n`nEmpfohlener Workflow:`n1. Klicken Sie auf 'DATEI AUSWÄHLEN' um eine PowerShell-Datei zu wählen`n2. Wählen Sie ein CERTUM-Zertifikat aus der Liste`n3. Verwenden Sie die Aktions-Buttons für Ihre gewünschte Operation`n`nDie Buttons werden automatisch basierend auf der ausgewählten Datei aktiviert.`n`nBereit zur Verwendung!"
+                Update-Info "PhinIT CERTUM Code Signing and EXE Creation Tool`n`nBereit zur Verwendung!"
     }
     catch {
-        Write-DebugInfo "DEBUG: Fehler beim Form Load: $($_.Exception.Message)"
-        Write-DebugInfo "DEBUG: StackTrace: $($_.Exception.StackTrace)"
+                Write-DebugLog "DEBUG: Fehler beim Form Load: $($_.Exception.Message)"
+                Write-DebugLog "DEBUG: StackTrace: $($_.Exception.StackTrace)"
         
         # Fallback bei Fehlern
         $script:settings = $defaultSettings.Clone()
@@ -1985,7 +2053,7 @@ $form.Add_Load({
 
 # Status-Header
 $statusHeader = New-Object System.Windows.Forms.Label
-$statusHeader.Text = "📊 Status"
+$statusHeader.Text = "Status"
 $statusHeader.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 14, [System.Drawing.FontStyle]::Regular)
 $statusHeader.Location = New-Object System.Drawing.Point(16, 710)
 $statusHeader.Size = New-Object System.Drawing.Size(150, 28)
@@ -1995,7 +2063,7 @@ $mainPanel.Controls.Add($statusHeader)
 # Status Panel
 $statusPanel = New-Object System.Windows.Forms.Panel
 $statusPanel.Location = New-Object System.Drawing.Point(16, 740)
-$statusPanel.Size = New-Object System.Drawing.Size(1150, 50)
+$statusPanel.Size = New-Object System.Drawing.Size(1015, 50)
 $statusPanel.BorderStyle = "FixedSingle"
 $statusPanel.BackColor = [System.Drawing.Color]::FromArgb(255, 255, 255)
 $mainPanel.Controls.Add($statusPanel)
@@ -2020,7 +2088,7 @@ $statusPanel.Controls.Add($progressBar)
 
 # Version Info
 $versionLabel = New-Object System.Windows.Forms.Label
-$versionLabel.Text = "PhinIT Code Signing Tool v0.1"
+$versionLabel.Text = "PhinIT Code Signing V0.1"
 $versionLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8)
 $versionLabel.Location = New-Object System.Drawing.Point(780, 15)
 $versionLabel.Size = New-Object System.Drawing.Size(200, 24)
@@ -2035,106 +2103,227 @@ $statusPanel.Controls.Add($versionLabel)
 # Form anzeigen
 try {
     Update-Status "Anwendung gestartet - Verwenden Sie den Browse-Button zur Dateiauswahl"
-    Write-Host "Starte GUI-Anwendung..."
     $form.ShowDialog() | Out-Null
 } catch {
-    Write-Host "Fehler beim Anzeigen des Formulars: $($_.Exception.Message)"
-    Write-Host "StackTrace: $($_.Exception.StackTrace)"
+    Write-Log "Fehler beim Anzeigen des Formulars: $($_.Exception.Message) $($_.Exception.StackTrace)" "ERROR"
 }
 
 # SIG # Begin signature block
-# MIIRcAYJKoZIhvcNAQcCoIIRYTCCEV0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIoiQYJKoZIhvcNAQcCoIIoejCCKHYCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCkDZHG3vCyytpt
-# ai2au4jVg6anU2/iP0yUKno+nCHZEaCCDaowgga5MIIEoaADAgECAhEAmaOACiZV
-# O2Wr3G6EprPqOTANBgkqhkiG9w0BAQwFADCBgDELMAkGA1UEBhMCUEwxIjAgBgNV
-# BAoTGVVuaXpldG8gVGVjaG5vbG9naWVzIFMuQS4xJzAlBgNVBAsTHkNlcnR1bSBD
-# ZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTEkMCIGA1UEAxMbQ2VydHVtIFRydXN0ZWQg
-# TmV0d29yayBDQSAyMB4XDTIxMDUxOTA1MzIxOFoXDTM2MDUxODA1MzIxOFowVjEL
-# MAkGA1UEBhMCUEwxITAfBgNVBAoTGEFzc2VjbyBEYXRhIFN5c3RlbXMgUy5BLjEk
-# MCIGA1UEAxMbQ2VydHVtIENvZGUgU2lnbmluZyAyMDIxIENBMIICIjANBgkqhkiG
-# 9w0BAQEFAAOCAg8AMIICCgKCAgEAnSPPBDAjO8FGLOczcz5jXXp1ur5cTbq96y34
-# vuTmflN4mSAfgLKTvggv24/rWiVGzGxT9YEASVMw1Aj8ewTS4IndU8s7VS5+djSo
-# McbvIKck6+hI1shsylP4JyLvmxwLHtSworV9wmjhNd627h27a8RdrT1PH9ud0IF+
-# njvMk2xqbNTIPsnWtw3E7DmDoUmDQiYi/ucJ42fcHqBkbbxYDB7SYOouu9Tj1yHI
-# ohzuC8KNqfcYf7Z4/iZgkBJ+UFNDcc6zokZ2uJIxWgPWXMEmhu1gMXgv8aGUsRda
-# CtVD2bSlbfsq7BiqljjaCun+RJgTgFRCtsuAEw0pG9+FA+yQN9n/kZtMLK+Wo837
-# Q4QOZgYqVWQ4x6cM7/G0yswg1ElLlJj6NYKLw9EcBXE7TF3HybZtYvj9lDV2nT8m
-# FSkcSkAExzd4prHwYjUXTeZIlVXqj+eaYqoMTpMrfh5MCAOIG5knN4Q/JHuurfTI
-# 5XDYO962WZayx7ACFf5ydJpoEowSP07YaBiQ8nXpDkNrUA9g7qf/rCkKbWpQ5bou
-# fUnq1UiYPIAHlezf4muJqxqIns/kqld6JVX8cixbd6PzkDpwZo4SlADaCi2JSplK
-# ShBSND36E/ENVv8urPS0yOnpG4tIoBGxVCARPCg1BnyMJ4rBJAcOSnAWd18Jx5n8
-# 58JSqPECAwEAAaOCAVUwggFRMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFN10
-# XUwA23ufoHTKsW73PMAywHDNMB8GA1UdIwQYMBaAFLahVDkCw6A/joq8+tT4HKbR
-# Og79MA4GA1UdDwEB/wQEAwIBBjATBgNVHSUEDDAKBggrBgEFBQcDAzAwBgNVHR8E
-# KTAnMCWgI6Ahhh9odHRwOi8vY3JsLmNlcnR1bS5wbC9jdG5jYTIuY3JsMGwGCCsG
-# AQUFBwEBBGAwXjAoBggrBgEFBQcwAYYcaHR0cDovL3N1YmNhLm9jc3AtY2VydHVt
-# LmNvbTAyBggrBgEFBQcwAoYmaHR0cDovL3JlcG9zaXRvcnkuY2VydHVtLnBsL2N0
-# bmNhMi5jZXIwOQYDVR0gBDIwMDAuBgRVHSAAMCYwJAYIKwYBBQUHAgEWGGh0dHA6
-# Ly93d3cuY2VydHVtLnBsL0NQUzANBgkqhkiG9w0BAQwFAAOCAgEAdYhYD+WPUCia
-# U58Q7EP89DttyZqGYn2XRDhJkL6P+/T0IPZyxfxiXumYlARMgwRzLRUStJl490L9
-# 4C9LGF3vjzzH8Jq3iR74BRlkO18J3zIdmCKQa5LyZ48IfICJTZVJeChDUyuQy6rG
-# DxLUUAsO0eqeLNhLVsgw6/zOfImNlARKn1FP7o0fTbj8ipNGxHBIutiRsWrhWM2f
-# 8pXdd3x2mbJCKKtl2s42g9KUJHEIiLni9ByoqIUul4GblLQigO0ugh7bWRLDm0Cd
-# Y9rNLqyA3ahe8WlxVWkxyrQLjH8ItI17RdySaYayX3PhRSC4Am1/7mATwZWwSD+B
-# 7eMcZNhpn8zJ+6MTyE6YoEBSRVrs0zFFIHUR08Wk0ikSf+lIe5Iv6RY3/bFAEloM
-# U+vUBfSouCReZwSLo8WdrDlPXtR0gicDnytO7eZ5827NS2x7gCBibESYkOh1/w1t
-# VxTpV2Na3PR7nxYVlPu1JPoRZCbH86gc96UTvuWiOruWmyOEMLOGGniR+x+zPF/2
-# DaGgK2W1eEJfo2qyrBNPvF7wuAyQfiFXLwvWHamoYtPZo0LHuH8X3n9C+xN4YaNj
-# t2ywzOr+tKyEVAotnyU9vyEVOaIYMk3IeBrmFnn0gbKeTTyYeEEUz/Qwt4HOUBCr
-# W602NCmvO1nm+/80nLy5r0AZvCQxaQ4wggbpMIIE0aADAgECAhBiOsZKIV2oSfsf
-# 25d4iu6HMA0GCSqGSIb3DQEBCwUAMFYxCzAJBgNVBAYTAlBMMSEwHwYDVQQKExhB
-# c3NlY28gRGF0YSBTeXN0ZW1zIFMuQS4xJDAiBgNVBAMTG0NlcnR1bSBDb2RlIFNp
-# Z25pbmcgMjAyMSBDQTAeFw0yNTA3MzExMTM4MDhaFw0yNjA3MzExMTM4MDdaMIGO
-# MQswCQYDVQQGEwJERTEbMBkGA1UECAwSQmFkZW4tV8O8cnR0ZW1iZXJnMRQwEgYD
-# VQQHDAtCYWllcnNicm9ubjEeMBwGA1UECgwVT3BlbiBTb3VyY2UgRGV2ZWxvcGVy
-# MSwwKgYDVQQDDCNPcGVuIFNvdXJjZSBEZXZlbG9wZXIsIEhlcHAgQW5kcmVhczCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAOt2txKXx2UtfBNIw2kVihIA
-# cgPkK3lp7np/qE0evLq2J/L5kx8m6dUY4WrrcXPSn1+W2/PVs/XBFV4fDfwczZnQ
-# /hYzc8Ot5YxPKLx6hZxKC5v8LjNIZ3SRJvMbOpjzWoQH7MLIIj64n8mou+V0CMk8
-# UElmU2d0nxBQyau1njQPCLvlfInu4tDndyp3P87V5bIdWw6MkZFhWDkILTYInYic
-# YEkut5dN9hT02t/3rXu230DEZ6S1OQtm9loo8wzvwjRoVX3IxnfpCHGW8Z9ie9I9
-# naMAOG2YpvpoUbLG3fL/B6JVNNR1mm/AYaqVMtAXJpRlqvbIZyepcG0YGB+kOQLd
-# oQCWlIp3a14Z4kg6bU9CU1KNR4ueA+SqLNu0QGtgBAdTfqoWvyiaeyEogstBHglr
-# Z39y/RW8OOa50pSleSRxSXiGW+yH+Ps5yrOopTQpKHy0kRincuJpYXgxGdGxxKHw
-# uVJHKXL0nWScEku0C38pM9sYanIKncuF0Ed7RvyNqmPP5pt+p/0ZG+zLNu/Rce0L
-# E5FjAIRtW2hFxmYMyohkafzyjCCCG0p2KFFT23CoUfXx59nCU+lyWx/iyDMV4sqr
-# cvmZdPZF7lkaIb5B4PYPvFFE7enApz4Niycj1gPUFlx4qTcXHIbFLJDp0ry6MYel
-# X+SiMHV7yDH/rnWXm5d3AgMBAAGjggF4MIIBdDAMBgNVHRMBAf8EAjAAMD0GA1Ud
-# HwQ2MDQwMqAwoC6GLGh0dHA6Ly9jY3NjYTIwMjEuY3JsLmNlcnR1bS5wbC9jY3Nj
-# YTIwMjEuY3JsMHMGCCsGAQUFBwEBBGcwZTAsBggrBgEFBQcwAYYgaHR0cDovL2Nj
-# c2NhMjAyMS5vY3NwLWNlcnR1bS5jb20wNQYIKwYBBQUHMAKGKWh0dHA6Ly9yZXBv
-# c2l0b3J5LmNlcnR1bS5wbC9jY3NjYTIwMjEuY2VyMB8GA1UdIwQYMBaAFN10XUwA
-# 23ufoHTKsW73PMAywHDNMB0GA1UdDgQWBBQYl6R41hwxInb9JVvqbCTp9ILCcTBL
-# BgNVHSAERDBCMAgGBmeBDAEEATA2BgsqhGgBhvZ3AgUBBDAnMCUGCCsGAQUFBwIB
-# FhlodHRwczovL3d3dy5jZXJ0dW0ucGwvQ1BTMBMGA1UdJQQMMAoGCCsGAQUFBwMD
-# MA4GA1UdDwEB/wQEAwIHgDANBgkqhkiG9w0BAQsFAAOCAgEAQ4guyo7zysB7MHMB
-# OVKKY72rdY5hrlxPci8u1RgBZ9ZDGFzhnUM7iIivieAeAYLVxP922V3ag9sDVNR+
-# mzCmu1pWCgZyBbNXykueKJwOfE8VdpmC/F7637i8a7Pyq6qPbcfvLSqiXtVrT4NX
-# 4NIvODW3kIqf4nGwd0h31tuJVHLkdpGmT0q4TW0gAxnNoQ+lO8uNzCrtOBk+4e1/
-# 3CZXSDnjR8SUsHrHdhnmqkAnYb40vf69dfDR148tToUj872yYeBUEGUsQUDgJ6HS
-# kMVpLQz/Nb3xy9qkY33M7CBWKuBVwEcbGig/yj7CABhIrY1XwRddYQhEyozUS4mX
-# NqXydAD6Ylt143qrECD2s3MDQBgP2sbRHdhVgzr9+n1iztXkPHpIlnnXPkZrt89E
-# 5iGL+1PtjETrhTkr7nxjyMFjrbmJ8W/XglwopUTCGfopDFPlzaoFf5rH/v3uzS24
-# yb6+dwQrvCwFA9Y9ZHy2ITJx7/Ll6AxWt7Lz9JCJ5xRyYeRUHs6ycB8EuMPAKyGp
-# zdGtjWv2rkTXbkIYUjklFTpquXJBc/kO5L+Quu0a0uKn4ea16SkABy052XHQqd87
-# cSJg3rGxsagi0IAfxGM608oupufSS/q9mpQPgkDuMJ8/zdre0st8OduAoG131W+X
-# J7mm0gIuh2zNmSIet5RDoa8THmwxggMcMIIDGAIBATBqMFYxCzAJBgNVBAYTAlBM
-# MSEwHwYDVQQKExhBc3NlY28gRGF0YSBTeXN0ZW1zIFMuQS4xJDAiBgNVBAMTG0Nl
-# cnR1bSBDb2RlIFNpZ25pbmcgMjAyMSBDQQIQYjrGSiFdqEn7H9uXeIruhzANBglg
-# hkgBZQMEAgEFAKCBhDAYBgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3
-# DQEJAzEMBgorBgEEAYI3AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEV
-# MC8GCSqGSIb3DQEJBDEiBCDPLWy7ToMmPMuQQMS/ssb0v0VC4loaV6YMqc353pYB
-# jDANBgkqhkiG9w0BAQEFAASCAgDFT8BcHKahWfWRDANDdYN989jsmSN48VeEkCE0
-# Fdj/fLRoAzzFG2pR962KGshDk2MhyiJGMOi4TPJatHTmGSrBLijkIE4o5Cat5w0I
-# 9uaXBmpWsLbPWR2kC0GB4HvCZFnvlbARi67zEn4SOSJTYdiRKMunVOewwttjJ4gx
-# p2g0CoB+ynrENYNy373p2+a+1OoisTA3/ke3yyt++UBfWsvujlj1OANxIoPF2t/M
-# v1ttLos6Kap0SG0T0JYNQDP/SrYVhgK5DAyFTcpCaOSAnJ+Kza6mIlr/i4waElHT
-# n04+k+jnaWHt6X4nExoAAYHNNJtuTsnkY3XTtthWf0cTTUN+FKioQGQdx7clASYT
-# MqIllM7UGtVYbF5O3iCj7aBeILYbhYVDGam5VtF0ko0wNc/BRpljDN/IccPvIk3H
-# 6GymKqZ0IQiYTLBCPPgJ/mFrA21iMrlF9QwccuhhA366en2M2NNx9bVpob0P42pa
-# de2hfF14Pdfxiub5TLdhlZJCzeWU4nayQf80rwtJEYogkIXngM487QqPsEyU4ib8
-# qKaEHgw9qWeWTGHiaKvOAP8u0e+pVppk9W/fgDarE9uWxHLiJOM3rPH8o7WAvSED
-# G1dCxk17rTSgWJFTf4FXFRyDa6FF7Z7MBIp5xUCzMYFHNHp4oB8FiBGYLvF0C3kI
-# mYedfQ==
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB+0LxD5OgUFTmO
+# B4Hxjnk9EsIgaVOIMlUd0idO9KSx66CCILswggXJMIIEsaADAgECAhAbtY8lKt8j
+# AEkoya49fu0nMA0GCSqGSIb3DQEBDAUAMH4xCzAJBgNVBAYTAlBMMSIwIAYDVQQK
+# ExlVbml6ZXRvIFRlY2hub2xvZ2llcyBTLkEuMScwJQYDVQQLEx5DZXJ0dW0gQ2Vy
+# dGlmaWNhdGlvbiBBdXRob3JpdHkxIjAgBgNVBAMTGUNlcnR1bSBUcnVzdGVkIE5l
+# dHdvcmsgQ0EwHhcNMjEwNTMxMDY0MzA2WhcNMjkwOTE3MDY0MzA2WjCBgDELMAkG
+# A1UEBhMCUEwxIjAgBgNVBAoTGVVuaXpldG8gVGVjaG5vbG9naWVzIFMuQS4xJzAl
+# BgNVBAsTHkNlcnR1bSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eTEkMCIGA1UEAxMb
+# Q2VydHVtIFRydXN0ZWQgTmV0d29yayBDQSAyMIICIjANBgkqhkiG9w0BAQEFAAOC
+# Ag8AMIICCgKCAgEAvfl4+ObVgAxknYYblmRnPyI6HnUBfe/7XGeMycxca6mR5rlC
+# 5SBLm9qbe7mZXdmbgEvXhEArJ9PoujC7Pgkap0mV7ytAJMKXx6fumyXvqAoAl4Va
+# qp3cKcniNQfrcE1K1sGzVrihQTib0fsxf4/gX+GxPw+OFklg1waNGPmqJhCrKtPQ
+# 0WeNG0a+RzDVLnLRxWPa52N5RH5LYySJhi40PylMUosqp8DikSiJucBb+R3Z5yet
+# /5oCl8HGUJKbAiy9qbk0WQq/hEr/3/6zn+vZnuCYI+yma3cWKtvMrTscpIfcRnNe
+# GWJoRVfkkIJCu0LW8GHgwaM9ZqNd9BjuiMmNF0UpmTJ1AjHuKSbIawLmtWJFfzcV
+# WiNoidQ+3k4nsPBADLxNF8tNorMe0AZa3faTz1d1mfX6hhpneLO/lv403L3nUlbl
+# s+V1e9dBkQXcXWnjlQ1DufyDljmVe2yAWk8TcsbXfSl6RLpSpCrVQUYJIP4ioLZb
+# MI28iQzV13D4h1L92u+sUS4Hs07+0AnacO+Y+lbmbdu1V0vc5SwlFcieLnhO+Nqc
+# noYsylfzGuXIkosagpZ6w7xQEmnYDlpGizrrJvojybawgb5CAKT41v4wLsfSRvbl
+# jnX98sy50IdbzAYQYLuDNbdeZ95H7JlI8aShFf6tjGKOOVVPORa5sWOd/7cCAwEA
+# AaOCAT4wggE6MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFLahVDkCw6A/joq8
+# +tT4HKbROg79MB8GA1UdIwQYMBaAFAh2zcsH/yT2xc3tu5C84oQ3RnX3MA4GA1Ud
+# DwEB/wQEAwIBBjAvBgNVHR8EKDAmMCSgIqAghh5odHRwOi8vY3JsLmNlcnR1bS5w
+# bC9jdG5jYS5jcmwwawYIKwYBBQUHAQEEXzBdMCgGCCsGAQUFBzABhhxodHRwOi8v
+# c3ViY2Eub2NzcC1jZXJ0dW0uY29tMDEGCCsGAQUFBzAChiVodHRwOi8vcmVwb3Np
+# dG9yeS5jZXJ0dW0ucGwvY3RuY2EuY2VyMDkGA1UdIAQyMDAwLgYEVR0gADAmMCQG
+# CCsGAQUFBwIBFhhodHRwOi8vd3d3LmNlcnR1bS5wbC9DUFMwDQYJKoZIhvcNAQEM
+# BQADggEBAFHCoVgWIhCL/IYx1MIy01z4S6Ivaj5N+KsIHu3V6PrnCA3st8YeDrJ1
+# BXqxC/rXdGoABh+kzqrya33YEcARCNQOTWHFOqj6seHjmOriY/1B9ZN9DbxdkjuR
+# mmW60F9MvkyNaAMQFtXx0ASKhTP5N+dbLiZpQjy6zbzUeulNndrnQ/tjUoCFBMQl
+# lVXwfqefAcVbKPjgzoZwpic7Ofs4LphTZSJ1Ldf23SIikZbr3WjtP6MZl9M7JYjs
+# NhI9qX7OAo0FmpKnJ25FspxihjcNpDOO16hO0EoXQ0zF8ads0h5YbBRRfopUofbv
+# n3l6XYGaFpAP4bvxSgD5+d2+7arszgowggaDMIIEa6ADAgECAhEAnpwE9lWotKcC
+# bUmMbHiNqjANBgkqhkiG9w0BAQwFADBWMQswCQYDVQQGEwJQTDEhMB8GA1UEChMY
+# QXNzZWNvIERhdGEgU3lzdGVtcyBTLkEuMSQwIgYDVQQDExtDZXJ0dW0gVGltZXN0
+# YW1waW5nIDIwMjEgQ0EwHhcNMjUwMTA5MDg0MDQzWhcNMzYwMTA3MDg0MDQzWjBQ
+# MQswCQYDVQQGEwJQTDEhMB8GA1UECgwYQXNzZWNvIERhdGEgU3lzdGVtcyBTLkEu
+# MR4wHAYDVQQDDBVDZXJ0dW0gVGltZXN0YW1wIDIwMjUwggIiMA0GCSqGSIb3DQEB
+# AQUAA4ICDwAwggIKAoICAQDHKV9n+Kwr3ZBF5UCLWOQ/NdbblAvQeGMjfCi/bibT
+# 71hPkwKV4UvQt1MuOwoaUCYtsLhw8jrmOmoz2HoHKKzEpiS3A1rA3ssXUZMnSrbi
+# iVpDj+5MtnbXSVEJKbccuHbmwcjl39N4W72zccoC/neKAuwO1DJ+9SO+YkHncRiV
+# 95idWhxRAcDYv47hc9GEFZtTFxQXLbrL4N7N90BqLle3ayznzccEPQ+E6H6p00zE
+# 9HUp++3bZTF4PfyPRnKCLc5ezAzEqqbbU5F/nujx69T1mm02jltlFXnTMF1vlake
+# QXWYpGIjtrR7WP7tIMZnk78nrYSfeAp8le+/W/5+qr7tqQZufW9invsRTcfk7P+m
+# nKjJLuSbwqgxelvCBryz9r51bT0561aR2c+joFygqW7n4FPCnMLOj40X4ot7wP2u
+# 8kLRDVHbhsHq5SGLqr8DbFq14ws2ALS3tYa2GGiA7wX79rS5oDMnSY/xmJO5cupu
+# SvqpylzO7jzcLOwWiqCrq05AXp51SRrj9xRt8KdZWpDdWhWmE8MFiFtmQ0AqODLJ
+# Bn1hQAx3FvD/pte6pE1Bil0BOVC2Snbeq/3NylDwvDdAg/0CZRJsQIaydHswJwyY
+# BlYUDyaQK2yUS57hobnYx/vStMvTB96ii4jGV3UkZh3GvwdDCsZkbJXaU8ATF/z6
+# DwIDAQABo4IBUDCCAUwwdQYIKwYBBQUHAQEEaTBnMDsGCCsGAQUFBzAChi9odHRw
+# Oi8vc3ViY2EucmVwb3NpdG9yeS5jZXJ0dW0ucGwvY3RzY2EyMDIxLmNlcjAoBggr
+# BgEFBQcwAYYcaHR0cDovL3N1YmNhLm9jc3AtY2VydHVtLmNvbTAfBgNVHSMEGDAW
+# gBS+VAIvv0Bsc0POrAklTp5DRBru4DAMBgNVHRMBAf8EAjAAMDkGA1UdHwQyMDAw
+# LqAsoCqGKGh0dHA6Ly9zdWJjYS5jcmwuY2VydHVtLnBsL2N0c2NhMjAyMS5jcmww
+# FgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwDgYDVR0PAQH/BAQDAgeAMCIGA1UdIAQb
+# MBkwCAYGZ4EMAQQCMA0GCyqEaAGG9ncCBQELMB0GA1UdDgQWBBSBjAagKFP8AD/b
+# fp5KwR8i7LISiTANBgkqhkiG9w0BAQwFAAOCAgEAmQ8ZDBvrBUPnaL87AYc4Jlmf
+# H1ZP5yt65MtzYu8fbmsL3d3cvYs+Enbtfu9f2wMehzSyved3Rc59a04O8NN7plw4
+# PXg71wfSE4MRFM1EuqL63zq9uTjm/9tA73r1aCdWmkprKp0aLoZolUN0qGcvr9+Q
+# G8VIJVMcuSqFeEvRrLEKK2xVkMSdTTbDhseUjI4vN+BrXm5z45EA3aDpSiZQuoNd
+# 4RFnDzddbgfcCQPaY2UyXqzNBjnuz6AyHnFzKtNlCevkMBgh4dIDt/0DGGDOaTEA
+# WZtUEqK5AlHd0PBnd40Lnog4UATU3Bt6GHfeDmWEHFTjHKsmn9Q8wiGj906bVgL8
+# 35tfEH9EgYDklqrOUxWxDf1cOA7ds/r8pIc2vjLQ9tOSkm9WXVbnTeLG3Q57frTg
+# CvTObd/qf3UzE97nTNOU7vOMZEo41AgmhuEbGsyQIDM/V6fJQX1RnzzJNoqfTTkU
+# zUoP2tlNHnNsjFo2YV+5yZcoaawmNWmR7TywUXG2/vFgJaG0bfEoodeeXp7A4I4H
+# aDDpfRa7ypgJEPeTwHuBRJpj9N+1xtri+6BzHPwsAAvUJm58PGoVsteHAXwvpg4N
+# VgvUk3BKbl7xFulWU1KHqH/sk7T0CFBQ5ohuKPmFf1oqAP4AO9a3Yg2wBMwEg1zP
+# Oh6xbUXskzs9iSa9yGwwgga5MIIEoaADAgECAhEAmaOACiZVO2Wr3G6EprPqOTAN
+# BgkqhkiG9w0BAQwFADCBgDELMAkGA1UEBhMCUEwxIjAgBgNVBAoTGVVuaXpldG8g
+# VGVjaG5vbG9naWVzIFMuQS4xJzAlBgNVBAsTHkNlcnR1bSBDZXJ0aWZpY2F0aW9u
+# IEF1dGhvcml0eTEkMCIGA1UEAxMbQ2VydHVtIFRydXN0ZWQgTmV0d29yayBDQSAy
+# MB4XDTIxMDUxOTA1MzIxOFoXDTM2MDUxODA1MzIxOFowVjELMAkGA1UEBhMCUEwx
+# ITAfBgNVBAoTGEFzc2VjbyBEYXRhIFN5c3RlbXMgUy5BLjEkMCIGA1UEAxMbQ2Vy
+# dHVtIENvZGUgU2lnbmluZyAyMDIxIENBMIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+# MIICCgKCAgEAnSPPBDAjO8FGLOczcz5jXXp1ur5cTbq96y34vuTmflN4mSAfgLKT
+# vggv24/rWiVGzGxT9YEASVMw1Aj8ewTS4IndU8s7VS5+djSoMcbvIKck6+hI1shs
+# ylP4JyLvmxwLHtSworV9wmjhNd627h27a8RdrT1PH9ud0IF+njvMk2xqbNTIPsnW
+# tw3E7DmDoUmDQiYi/ucJ42fcHqBkbbxYDB7SYOouu9Tj1yHIohzuC8KNqfcYf7Z4
+# /iZgkBJ+UFNDcc6zokZ2uJIxWgPWXMEmhu1gMXgv8aGUsRdaCtVD2bSlbfsq7Biq
+# ljjaCun+RJgTgFRCtsuAEw0pG9+FA+yQN9n/kZtMLK+Wo837Q4QOZgYqVWQ4x6cM
+# 7/G0yswg1ElLlJj6NYKLw9EcBXE7TF3HybZtYvj9lDV2nT8mFSkcSkAExzd4prHw
+# YjUXTeZIlVXqj+eaYqoMTpMrfh5MCAOIG5knN4Q/JHuurfTI5XDYO962WZayx7AC
+# Ff5ydJpoEowSP07YaBiQ8nXpDkNrUA9g7qf/rCkKbWpQ5boufUnq1UiYPIAHlezf
+# 4muJqxqIns/kqld6JVX8cixbd6PzkDpwZo4SlADaCi2JSplKShBSND36E/ENVv8u
+# rPS0yOnpG4tIoBGxVCARPCg1BnyMJ4rBJAcOSnAWd18Jx5n858JSqPECAwEAAaOC
+# AVUwggFRMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFN10XUwA23ufoHTKsW73
+# PMAywHDNMB8GA1UdIwQYMBaAFLahVDkCw6A/joq8+tT4HKbROg79MA4GA1UdDwEB
+# /wQEAwIBBjATBgNVHSUEDDAKBggrBgEFBQcDAzAwBgNVHR8EKTAnMCWgI6Ahhh9o
+# dHRwOi8vY3JsLmNlcnR1bS5wbC9jdG5jYTIuY3JsMGwGCCsGAQUFBwEBBGAwXjAo
+# BggrBgEFBQcwAYYcaHR0cDovL3N1YmNhLm9jc3AtY2VydHVtLmNvbTAyBggrBgEF
+# BQcwAoYmaHR0cDovL3JlcG9zaXRvcnkuY2VydHVtLnBsL2N0bmNhMi5jZXIwOQYD
+# VR0gBDIwMDAuBgRVHSAAMCYwJAYIKwYBBQUHAgEWGGh0dHA6Ly93d3cuY2VydHVt
+# LnBsL0NQUzANBgkqhkiG9w0BAQwFAAOCAgEAdYhYD+WPUCiaU58Q7EP89DttyZqG
+# Yn2XRDhJkL6P+/T0IPZyxfxiXumYlARMgwRzLRUStJl490L94C9LGF3vjzzH8Jq3
+# iR74BRlkO18J3zIdmCKQa5LyZ48IfICJTZVJeChDUyuQy6rGDxLUUAsO0eqeLNhL
+# Vsgw6/zOfImNlARKn1FP7o0fTbj8ipNGxHBIutiRsWrhWM2f8pXdd3x2mbJCKKtl
+# 2s42g9KUJHEIiLni9ByoqIUul4GblLQigO0ugh7bWRLDm0CdY9rNLqyA3ahe8Wlx
+# VWkxyrQLjH8ItI17RdySaYayX3PhRSC4Am1/7mATwZWwSD+B7eMcZNhpn8zJ+6MT
+# yE6YoEBSRVrs0zFFIHUR08Wk0ikSf+lIe5Iv6RY3/bFAEloMU+vUBfSouCReZwSL
+# o8WdrDlPXtR0gicDnytO7eZ5827NS2x7gCBibESYkOh1/w1tVxTpV2Na3PR7nxYV
+# lPu1JPoRZCbH86gc96UTvuWiOruWmyOEMLOGGniR+x+zPF/2DaGgK2W1eEJfo2qy
+# rBNPvF7wuAyQfiFXLwvWHamoYtPZo0LHuH8X3n9C+xN4YaNjt2ywzOr+tKyEVAot
+# nyU9vyEVOaIYMk3IeBrmFnn0gbKeTTyYeEEUz/Qwt4HOUBCrW602NCmvO1nm+/80
+# nLy5r0AZvCQxaQ4wgga5MIIEoaADAgECAhEA5/9pxzs1zkuRJth0fGilhzANBgkq
+# hkiG9w0BAQwFADCBgDELMAkGA1UEBhMCUEwxIjAgBgNVBAoTGVVuaXpldG8gVGVj
+# aG5vbG9naWVzIFMuQS4xJzAlBgNVBAsTHkNlcnR1bSBDZXJ0aWZpY2F0aW9uIEF1
+# dGhvcml0eTEkMCIGA1UEAxMbQ2VydHVtIFRydXN0ZWQgTmV0d29yayBDQSAyMB4X
+# DTIxMDUxOTA1MzIwN1oXDTM2MDUxODA1MzIwN1owVjELMAkGA1UEBhMCUEwxITAf
+# BgNVBAoTGEFzc2VjbyBEYXRhIFN5c3RlbXMgUy5BLjEkMCIGA1UEAxMbQ2VydHVt
+# IFRpbWVzdGFtcGluZyAyMDIxIENBMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIIC
+# CgKCAgEA6RIfBDXtuV16xaaVQb6KZX9Od9FtJXXTZo7b+GEof3+3g0ChWiKnO7R4
+# +6MfrvLyLCWZa6GpFHjEt4t0/GiUQvnkLOBRdBqr5DOvlmTvJJs2X8ZmWgWJjC7P
+# BZLYBWAs8sJl3kNXxBMX5XntjqWx1ZOuuXl0R4x+zGGSMzZ45dpvB8vLpQfZkfMC
+# /1tL9KYyjU+htLH68dZJPtzhqLBVG+8ljZ1ZFilOKksS79epCeqFSeAUm2eMTGpO
+# iS3gfLM6yvb8Bg6bxg5yglDGC9zbr4sB9ceIGRtCQF1N8dqTgM/dSViiUgJkcv5d
+# LNJeWxGCqJYPgzKlYZTgDXfGIeZpEFmjBLwURP5ABsyKoFocMzdjrCiFbTvJn+bD
+# 1kq78qZUgAQGGtd6zGJ88H4NPJ5Y2R4IargiWAmv8RyvWnHr/VA+2PrrK9eXe5q7
+# M88YRdSTq9TKbqdnITUgZcjjm4ZUjteq8K331a4P0s2in0p3UubMEYa/G5w6jSWP
+# UzchGLwWKYBfeSu6dIOC4LkeAPvmdZxSB1lWOb9HzVWZoM8Q/blaP4LWt6JxjkI9
+# yQsYGMdCqwl7uMnPUIlcExS1mzXRxUowQref/EPaS7kYVaHHQrp4XB7nTEtQhkP0
+# Z9Puz/n8zIFnUSnxDof4Yy650PAXSYmK2TcbyDoTNmmt8xAxzcMCAwEAAaOCAVUw
+# ggFRMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFL5UAi+/QGxzQ86sCSVOnkNE
+# Gu7gMB8GA1UdIwQYMBaAFLahVDkCw6A/joq8+tT4HKbROg79MA4GA1UdDwEB/wQE
+# AwIBBjATBgNVHSUEDDAKBggrBgEFBQcDCDAwBgNVHR8EKTAnMCWgI6Ahhh9odHRw
+# Oi8vY3JsLmNlcnR1bS5wbC9jdG5jYTIuY3JsMGwGCCsGAQUFBwEBBGAwXjAoBggr
+# BgEFBQcwAYYcaHR0cDovL3N1YmNhLm9jc3AtY2VydHVtLmNvbTAyBggrBgEFBQcw
+# AoYmaHR0cDovL3JlcG9zaXRvcnkuY2VydHVtLnBsL2N0bmNhMi5jZXIwOQYDVR0g
+# BDIwMDAuBgRVHSAAMCYwJAYIKwYBBQUHAgEWGGh0dHA6Ly93d3cuY2VydHVtLnBs
+# L0NQUzANBgkqhkiG9w0BAQwFAAOCAgEAuJNZd8lMFf2UBwigp3qgLPBBk58BFCS3
+# Q6aJDf3TISoytK0eal/JyCB88aUEd0wMNiEcNVMbK9j5Yht2whaknUE1G32k6uld
+# 7wcxHmw67vUBY6pSp8QhdodY4SzRRaZWzyYlviUpyU4dXyhKhHSncYJfa1U75cXx
+# Ce3sTp9uTBm3f8Bj8LkpjMUSVTtMJ6oEu5JqCYzRfc6nnoRUgwz/GVZFoOBGdrSE
+# tDN7mZgcka/tS5MI47fALVvN5lZ2U8k7Dm/hTX8CWOw0uBZloZEW4HB0Xra3qE4q
+# zzq/6M8gyoU/DE0k3+i7bYOrOk/7tPJg1sOhytOGUQ30PbG++0FfJioDuOFhj99b
+# 151SqFlSaRQYz74y/P2XJP+cF19oqozmi0rRTkfyEJIvhIZ+M5XIFZttmVQgTxfp
+# fJwMFFEoQrSrklOxpmSygppsUDJEoliC05vBLVQ+gMZyYaKvBJ4YxBMlKH5ZHkRd
+# loRYlUDplk8GUa+OCMVhpDSQurU6K1ua5dmZftnvSSz2H96UrQDzA6DyiI1V3ejV
+# tvn2azVAXg6NnjmuRZ+wa7Pxy0H3+V4K4rOTHlG3VYA6xfLsTunCz72T6Ot4+tkr
+# DYOeaU1pPX1CBfYj6EW2+ELq46GP8KCNUQDirWLU4nOmgCat7vN0SD6RlwUiSsMe
+# CiQDmZwgwrUwggbpMIIE0aADAgECAhBiOsZKIV2oSfsf25d4iu6HMA0GCSqGSIb3
+# DQEBCwUAMFYxCzAJBgNVBAYTAlBMMSEwHwYDVQQKExhBc3NlY28gRGF0YSBTeXN0
+# ZW1zIFMuQS4xJDAiBgNVBAMTG0NlcnR1bSBDb2RlIFNpZ25pbmcgMjAyMSBDQTAe
+# Fw0yNTA3MzExMTM4MDhaFw0yNjA3MzExMTM4MDdaMIGOMQswCQYDVQQGEwJERTEb
+# MBkGA1UECAwSQmFkZW4tV8O8cnR0ZW1iZXJnMRQwEgYDVQQHDAtCYWllcnNicm9u
+# bjEeMBwGA1UECgwVT3BlbiBTb3VyY2UgRGV2ZWxvcGVyMSwwKgYDVQQDDCNPcGVu
+# IFNvdXJjZSBEZXZlbG9wZXIsIEhlcHAgQW5kcmVhczCCAiIwDQYJKoZIhvcNAQEB
+# BQADggIPADCCAgoCggIBAOt2txKXx2UtfBNIw2kVihIAcgPkK3lp7np/qE0evLq2
+# J/L5kx8m6dUY4WrrcXPSn1+W2/PVs/XBFV4fDfwczZnQ/hYzc8Ot5YxPKLx6hZxK
+# C5v8LjNIZ3SRJvMbOpjzWoQH7MLIIj64n8mou+V0CMk8UElmU2d0nxBQyau1njQP
+# CLvlfInu4tDndyp3P87V5bIdWw6MkZFhWDkILTYInYicYEkut5dN9hT02t/3rXu2
+# 30DEZ6S1OQtm9loo8wzvwjRoVX3IxnfpCHGW8Z9ie9I9naMAOG2YpvpoUbLG3fL/
+# B6JVNNR1mm/AYaqVMtAXJpRlqvbIZyepcG0YGB+kOQLdoQCWlIp3a14Z4kg6bU9C
+# U1KNR4ueA+SqLNu0QGtgBAdTfqoWvyiaeyEogstBHglrZ39y/RW8OOa50pSleSRx
+# SXiGW+yH+Ps5yrOopTQpKHy0kRincuJpYXgxGdGxxKHwuVJHKXL0nWScEku0C38p
+# M9sYanIKncuF0Ed7RvyNqmPP5pt+p/0ZG+zLNu/Rce0LE5FjAIRtW2hFxmYMyohk
+# afzyjCCCG0p2KFFT23CoUfXx59nCU+lyWx/iyDMV4sqrcvmZdPZF7lkaIb5B4PYP
+# vFFE7enApz4Niycj1gPUFlx4qTcXHIbFLJDp0ry6MYelX+SiMHV7yDH/rnWXm5d3
+# AgMBAAGjggF4MIIBdDAMBgNVHRMBAf8EAjAAMD0GA1UdHwQ2MDQwMqAwoC6GLGh0
+# dHA6Ly9jY3NjYTIwMjEuY3JsLmNlcnR1bS5wbC9jY3NjYTIwMjEuY3JsMHMGCCsG
+# AQUFBwEBBGcwZTAsBggrBgEFBQcwAYYgaHR0cDovL2Njc2NhMjAyMS5vY3NwLWNl
+# cnR1bS5jb20wNQYIKwYBBQUHMAKGKWh0dHA6Ly9yZXBvc2l0b3J5LmNlcnR1bS5w
+# bC9jY3NjYTIwMjEuY2VyMB8GA1UdIwQYMBaAFN10XUwA23ufoHTKsW73PMAywHDN
+# MB0GA1UdDgQWBBQYl6R41hwxInb9JVvqbCTp9ILCcTBLBgNVHSAERDBCMAgGBmeB
+# DAEEATA2BgsqhGgBhvZ3AgUBBDAnMCUGCCsGAQUFBwIBFhlodHRwczovL3d3dy5j
+# ZXJ0dW0ucGwvQ1BTMBMGA1UdJQQMMAoGCCsGAQUFBwMDMA4GA1UdDwEB/wQEAwIH
+# gDANBgkqhkiG9w0BAQsFAAOCAgEAQ4guyo7zysB7MHMBOVKKY72rdY5hrlxPci8u
+# 1RgBZ9ZDGFzhnUM7iIivieAeAYLVxP922V3ag9sDVNR+mzCmu1pWCgZyBbNXykue
+# KJwOfE8VdpmC/F7637i8a7Pyq6qPbcfvLSqiXtVrT4NX4NIvODW3kIqf4nGwd0h3
+# 1tuJVHLkdpGmT0q4TW0gAxnNoQ+lO8uNzCrtOBk+4e1/3CZXSDnjR8SUsHrHdhnm
+# qkAnYb40vf69dfDR148tToUj872yYeBUEGUsQUDgJ6HSkMVpLQz/Nb3xy9qkY33M
+# 7CBWKuBVwEcbGig/yj7CABhIrY1XwRddYQhEyozUS4mXNqXydAD6Ylt143qrECD2
+# s3MDQBgP2sbRHdhVgzr9+n1iztXkPHpIlnnXPkZrt89E5iGL+1PtjETrhTkr7nxj
+# yMFjrbmJ8W/XglwopUTCGfopDFPlzaoFf5rH/v3uzS24yb6+dwQrvCwFA9Y9ZHy2
+# ITJx7/Ll6AxWt7Lz9JCJ5xRyYeRUHs6ycB8EuMPAKyGpzdGtjWv2rkTXbkIYUjkl
+# FTpquXJBc/kO5L+Quu0a0uKn4ea16SkABy052XHQqd87cSJg3rGxsagi0IAfxGM6
+# 08oupufSS/q9mpQPgkDuMJ8/zdre0st8OduAoG131W+XJ7mm0gIuh2zNmSIet5RD
+# oa8THmwxggckMIIHIAIBATBqMFYxCzAJBgNVBAYTAlBMMSEwHwYDVQQKExhBc3Nl
+# Y28gRGF0YSBTeXN0ZW1zIFMuQS4xJDAiBgNVBAMTG0NlcnR1bSBDb2RlIFNpZ25p
+# bmcgMjAyMSBDQQIQYjrGSiFdqEn7H9uXeIruhzANBglghkgBZQMEAgEFAKCBhDAY
+# BgorBgEEAYI3AgEMMQowCKACgAChAoAAMBkGCSqGSIb3DQEJAzEMBgorBgEEAYI3
+# AgEEMBwGCisGAQQBgjcCAQsxDjAMBgorBgEEAYI3AgEVMC8GCSqGSIb3DQEJBDEi
+# BCDqbE2U9hxmzESbnf/BM2+FHy+2L69AFLuXdMGAjf+wWDANBgkqhkiG9w0BAQEF
+# AASCAgCeTQBE/H44Nd+RVb6t/1cOCzjtdgX3Wi5rTl4/Q0yx8rEOsKOdU7ZOtDSu
+# +g7I3fBZ6YxR2FiEyTSPYsy+d9Q3/7mESln1Icz8mT4ROS8PwIoPkoNK9Tt6ykH5
+# CkeIyZ8Ib4znlyR1HxW1Aj0CT6wKDH8vtTzomDP1gWC7Lir8X7/IGu6e0gPhJ6R+
+# oLPTnkaYRhAHDKCRn1azSpan/3YgT1ll430KDYiSyB7FGXNEjTbLJqEgxxofITpd
+# InMRCPuQyU1oJkWSpM7WaizD8VebJijVPl3u1Vj3v/uOu3CzMoruEINq/95LQu0S
+# jFDBzFYONyxX6z407M3t1vmlXHFcTaH/nV559/Rbj3xeWh1dRy51m1xHEi0M39ND
+# /h2O2QMmsvsScpNrOxcir2v6KPFLv8Xoz+5vp0JdpaBTBjSbJ0Zh2WI1BTHd140R
+# NqWOdyiqCxIDtrF58BqhU/z+EPaLErPpPlwd8rzk2o2EApeCsNaNgy21toIbGxJb
+# cklrEXMmQQtmInejntj35LMqmBFArKOlbg7WUgyrUnbUWr5L23l8wZf5++oL46aM
+# tKvnvsrHQ/JWEkIie1CbM+XIb50sIFpYoWimtvhp5Az7Ci8LXeB1q3gseA2T6olt
+# a1FeCD+HbTFLuB9PTWfSmULlSpL/VD12DPsF4l0AnSDg+3ouLaGCBAQwggQABgkq
+# hkiG9w0BCQYxggPxMIID7QIBATBrMFYxCzAJBgNVBAYTAlBMMSEwHwYDVQQKExhB
+# c3NlY28gRGF0YSBTeXN0ZW1zIFMuQS4xJDAiBgNVBAMTG0NlcnR1bSBUaW1lc3Rh
+# bXBpbmcgMjAyMSBDQQIRAJ6cBPZVqLSnAm1JjGx4jaowDQYJYIZIAWUDBAICBQCg
+# ggFXMBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcN
+# MjUxMDI1MTY1MzM0WjA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCDPodw1ne0rw8uJ
+# D6Iw5dr3e1QPGm4rI93PF1ThjPqg1TA/BgkqhkiG9w0BCQQxMgQwTzukS8HMUBXi
+# +69BwLfLNXt3Kn+rA10YUTjx1vF4/vZb+XqasZug4GqCE76jrSWqMIGgBgsqhkiG
+# 9w0BCRACDDGBkDCBjTCBijCBhwQUwyW4mxf8xQJgYc4rcXtFB92camowbzBapFgw
+# VjELMAkGA1UEBhMCUEwxITAfBgNVBAoTGEFzc2VjbyBEYXRhIFN5c3RlbXMgUy5B
+# LjEkMCIGA1UEAxMbQ2VydHVtIFRpbWVzdGFtcGluZyAyMDIxIENBAhEAnpwE9lWo
+# tKcCbUmMbHiNqjANBgkqhkiG9w0BAQEFAASCAgB9iMhDCqz+gSP/Lump8LJj0StP
+# V4keGjfmYV9oK+S/Nc8ypVWuFT7+pxzrkRzKnZYFJuhVvdBlVjYYqoBU3FLd8Nfm
+# Yhsd1PKoAoNjYLZRLtZxpCAOUzrj9t57t18a+0+X7GBmCzt+j+Alr3xM0AP4enl4
+# VHAHGKjze+imnBLfDtYXiscreAuYEu5NGahREutBAFo/x5MREuK/Kn+ksMQS5Ki3
+# GrvgfcSTf8uFhiAW55ohV1S3bNBNxyMddpQnqvV44YWE1x9ZW0aq97hWFWYxtfIV
+# qlZ/b0M+yzCVEYrTbp7ZRd+tCoaoujUegh1fDkDp03IW8zmHlVKJ/DfLgSpms1vZ
+# gDDart7cNbOTjBmu92DyPgRJiAZxTmIx+k4OGfafD8fSCLOHFd85SXj2n2zmDGzW
+# RgeKTKS7fMnFwNqCWaJIEZEm0qcN3z9Gte/2P7SFmRTr915XQ44C4VdEEfMh49q2
+# cm4G5lCYOMVm4k7uQ4Aime0VmXWnocTvOmxdXJcH4gk6XaYy8bysYVVffWGaSHIo
+# c3AWh/fG2B7VHFbI3uoqxMZ2dtjXtkWasmEINByvd9NkrPBLz3/SvU7TnEAMZ9ug
+# VPOcWJTLUCfYD1QDwUwUG5b+rSyMjQfZBEDv/YRgoQH8srwgnNTSnfqufy57p77i
+# mgZnu1zXPi+kSP4yXA==
 # SIG # End signature block
